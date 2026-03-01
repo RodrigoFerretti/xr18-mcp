@@ -1,0 +1,31 @@
+{
+	"name": "xr18-mcp",
+	"version": "1.0.0",
+	"description": "MCP server for Behringer XR18/MR18 mixer with batch command support",
+	"type": "module",
+	"main": "dist/index.js",
+	"bin": {
+		"xr18-mcp": "dist/index.js"
+	},
+	"scripts": {
+		"build": "tsc",
+		"dev": "tsx src/index.ts",
+		"test": "vitest run",
+		"test:watch": "vitest",
+		"lint": "biome check .",
+		"lint:fix": "biome check --fix .",
+		"format": "biome format --write ."
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.12.1",
+		"osc-min": "^2.1.2",
+		"zod": "^3.24.4"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.4",
+		"@types/node": "^22.15.3",
+		"tsx": "^4.19.4",
+		"typescript": "^5.8.3",
+		"vitest": "^3.1.2"
+	}
+}
