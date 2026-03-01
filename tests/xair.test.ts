@@ -11,7 +11,13 @@ import {
 	chMute,
 	chSendLevel,
 	dbToFader,
+	eqFreqToFloat,
+	eqGainToFloat,
+	eqQToFloat,
 	faderToDb,
+	floatToEqFreq,
+	floatToEqGain,
+	floatToEqQ,
 	fxReturnFader,
 	fxReturnMute,
 	fxReturnSendLevel,
@@ -121,6 +127,59 @@ describe("OSC address builders", () => {
 		expect(chSendLevel(AUX_CHANNEL, 5)).toBe("/rtn/aux/mix/05/level");
 		expect(chEqOn(AUX_CHANNEL)).toBe("/rtn/aux/eq/on");
 		expect(chConfigName(AUX_CHANNEL)).toBe("/rtn/aux/config/name");
+	});
+});
+
+describe("EQ frequency conversion", () => {
+	it("converts boundary values", () => {
+		expect(eqFreqToFloat(20)).toBeCloseTo(0.0, 5);
+		expect(eqFreqToFloat(20000)).toBeCloseTo(1.0, 5);
+	});
+
+	it("converts 1 kHz to ~0.566", () => {
+		// log10(1000/20) / 3 = log10(50) / 3 ≈ 1.699 / 3 ≈ 0.566
+		expect(eqFreqToFloat(1000)).toBeCloseTo(0.5663, 3);
+	});
+
+	it("clamps out-of-range values", () => {
+		expect(eqFreqToFloat(10)).toBeCloseTo(0.0, 5);
+		expect(eqFreqToFloat(30000)).toBeCloseTo(1.0, 5);
+	});
+
+	it("round-trips through floatToEqFreq", () => {
+		for (const hz of [20, 100, 440, 1000, 5000, 10000, 20000]) {
+			expect(floatToEqFreq(eqFreqToFloat(hz))).toBeCloseTo(hz, 1);
+		}
+	});
+});
+
+describe("EQ gain conversion", () => {
+	it("converts boundary values", () => {
+		expect(eqGainToFloat(-15)).toBeCloseTo(0.0, 5);
+		expect(eqGainToFloat(15)).toBeCloseTo(1.0, 5);
+	});
+
+	it("converts 0 dB to 0.5", () => {
+		expect(eqGainToFloat(0)).toBeCloseTo(0.5, 5);
+	});
+
+	it("round-trips through floatToEqGain", () => {
+		for (const db of [-15, -10, -3, 0, 6, 12, 15]) {
+			expect(floatToEqGain(eqGainToFloat(db))).toBeCloseTo(db, 5);
+		}
+	});
+});
+
+describe("EQ Q conversion", () => {
+	it("converts boundary values", () => {
+		expect(eqQToFloat(10)).toBeCloseTo(0.0, 5);
+		expect(eqQToFloat(0.3)).toBeCloseTo(1.0, 3);
+	});
+
+	it("round-trips through floatToEqQ", () => {
+		for (const q of [0.3, 0.5, 1.0, 2.0, 5.0, 10.0]) {
+			expect(floatToEqQ(eqQToFloat(q))).toBeCloseTo(q, 2);
+		}
 	});
 });
 

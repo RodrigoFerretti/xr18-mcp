@@ -46,10 +46,16 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 			xair.validateEqBand(cmd.band);
 			client.send(xair.chEqBand(ch, cmd.band, "f"), {
 				type: "float",
-				value: cmd.frequency_hz,
+				value: xair.eqFreqToFloat(cmd.frequency_hz),
 			});
-			client.send(xair.chEqBand(ch, cmd.band, "g"), { type: "float", value: cmd.gain_db });
-			client.send(xair.chEqBand(ch, cmd.band, "q"), { type: "float", value: cmd.q });
+			client.send(xair.chEqBand(ch, cmd.band, "g"), {
+				type: "float",
+				value: xair.eqGainToFloat(cmd.gain_db),
+			});
+			client.send(xair.chEqBand(ch, cmd.band, "q"), {
+				type: "float",
+				value: xair.eqQToFloat(cmd.q),
+			});
 			return `Ch ${ch} EQ band ${cmd.band}: ${cmd.frequency_hz}Hz ${cmd.gain_db}dB Q=${cmd.q}`;
 		}
 		case "set_channel_eq_on": {

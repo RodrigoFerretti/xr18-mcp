@@ -83,6 +83,48 @@ export function faderToDb(val: number): number {
 	return NEG_INF_DB;
 }
 
+// --- EQ parameter <-> float conversion ---
+// The XR18 uses normalized 0.0-1.0 floats for all EQ parameters.
+
+const EQ_FREQ_MIN = 20;
+const EQ_FREQ_MAX = 20000;
+const EQ_FREQ_LOG_RANGE = Math.log10(EQ_FREQ_MAX / EQ_FREQ_MIN); // = 3
+
+const EQ_GAIN_MIN = -15;
+const EQ_GAIN_MAX = 15;
+const EQ_GAIN_RANGE = EQ_GAIN_MAX - EQ_GAIN_MIN; // = 30
+
+const EQ_Q_MAX = 10; // float 0.0 = widest (Q=10)
+const EQ_Q_MIN = 0.3; // float 1.0 = narrowest (Q=0.3)
+const EQ_Q_LOG_RATIO = Math.log10(EQ_Q_MAX / EQ_Q_MIN); // log10(33.333)
+
+export function eqFreqToFloat(hz: number): number {
+	const clamped = Math.max(EQ_FREQ_MIN, Math.min(EQ_FREQ_MAX, hz));
+	return Math.log10(clamped / EQ_FREQ_MIN) / EQ_FREQ_LOG_RANGE;
+}
+
+export function floatToEqFreq(val: number): number {
+	return EQ_FREQ_MIN * 10 ** (val * EQ_FREQ_LOG_RANGE);
+}
+
+export function eqGainToFloat(db: number): number {
+	const clamped = Math.max(EQ_GAIN_MIN, Math.min(EQ_GAIN_MAX, db));
+	return (clamped - EQ_GAIN_MIN) / EQ_GAIN_RANGE;
+}
+
+export function floatToEqGain(val: number): number {
+	return val * EQ_GAIN_RANGE + EQ_GAIN_MIN;
+}
+
+export function eqQToFloat(q: number): number {
+	const clamped = Math.max(EQ_Q_MIN, Math.min(EQ_Q_MAX, q));
+	return Math.log10(EQ_Q_MAX / clamped) / EQ_Q_LOG_RATIO;
+}
+
+export function floatToEqQ(val: number): number {
+	return EQ_Q_MAX / 10 ** (val * EQ_Q_LOG_RATIO);
+}
+
 // --- OSC address builders ---
 
 function pad(n: number): string {

@@ -108,7 +108,7 @@ describe("executeBatch", () => {
 		expect(results[0].message).toContain("Ch 1 -> Bus 2");
 	});
 
-	it("handles EQ commands (3 OSC messages per command)", () => {
+	it("handles EQ commands with normalized float values", () => {
 		const commands: Command[] = [
 			{
 				action: "set_channel_eq",
@@ -123,6 +123,21 @@ describe("executeBatch", () => {
 		executeBatch(commands, client, registry);
 		// EQ sends 3 messages: freq, gain, Q
 		expect(client.send).toHaveBeenCalledTimes(3);
+		// Frequency: log10(1000/20) / log10(20000/20) ≈ 0.5663
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/2/f", {
+			type: "float",
+			value: expect.closeTo(0.5663, 3),
+		});
+		// Gain: (3 + 15) / 30 = 0.6
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/2/g", {
+			type: "float",
+			value: expect.closeTo(0.6, 5),
+		});
+		// Q: log10(10/1.5) / log10(10/0.3) ≈ 0.5410
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/2/q", {
+			type: "float",
+			value: expect.closeTo(0.5410, 3),
+		});
 	});
 
 	it("handles FX return commands", () => {

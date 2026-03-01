@@ -4,6 +4,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { NameRegistry } from "./name-registry.js";
 import { registerBatchTool } from "./tools/batch.js";
 import { type MixerState, registerConnectTool } from "./tools/connect.js";
+import { registerEqMatchTool } from "./tools/eq-match.js";
 import { registerQueryTools } from "./tools/query.js";
 import { registerRtaTool } from "./tools/rta.js";
 
@@ -21,6 +22,7 @@ registerConnectTool(server, state);
 registerBatchTool(server, state);
 registerQueryTools(server, state);
 registerRtaTool(server, state);
+registerEqMatchTool(server, state);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
