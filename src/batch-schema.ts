@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CompressorFields, GateFields } from "./dynamics.js";
-import { EQ_TYPE_NAMES, SEND_TAP_NAMES } from "./strip.js";
-import { COLOR_NAMES, HPF_HZ, PAN } from "./xair.js";
+import { EQ_MODE_NAMES, EQ_TYPE_NAMES, SEND_TAP_NAMES } from "./strip.js";
+import { COLOR_NAMES, GEQ_GAIN_DB, HPF_HZ, NUM_BUS_EQ_BANDS, PAN } from "./xair.js";
 
 // --- Shared field schemas ---
 
@@ -240,6 +240,121 @@ const SetMainCompressor = z
 		"Set any subset of the main LR compressor parameters. Omitted fields are left unchanged.",
 	);
 
+const BusEqBand = z
+	.number()
+	.int()
+	.min(1)
+	.max(NUM_BUS_EQ_BANDS)
+	.describe("EQ band number (1-6) on a bus or the main LR. 1 = lowest, 6 = highest.");
+
+const EqBandFields = {
+	type: EqType.optional(),
+	frequency_hz: EqFrequency.optional(),
+	gain_db: EqGain.optional(),
+	q: EqQ.optional(),
+};
+
+const SetBusEq = z
+	.object({
+		action: z.literal("set_bus_eq"),
+		bus: BusRef,
+		band: BusEqBand,
+		...EqBandFields,
+	})
+	.describe(
+		"Set any subset of one of the 6 parametric EQ bands on a bus (active when the bus EQ mode is peq). Omitted fields are left unchanged.",
+	);
+
+const SetMainEq = z
+	.object({
+		action: z.literal("set_main_eq"),
+		band: BusEqBand,
+		...EqBandFields,
+	})
+	.describe(
+		"Set any subset of one of the 6 parametric EQ bands on the main LR (active when the main EQ mode is peq). Omitted fields are left unchanged.",
+	);
+
+const EqMode = z
+	.enum(EQ_MODE_NAMES)
+	.describe(
+		"peq = 6-band parametric, geq = 31-band graphic, teq = 'true' graphic (compensates band interaction). Only the selected one is active.",
+	);
+
+const SetBusEqOn = z
+	.object({
+		action: z.literal("set_bus_eq_on"),
+		bus: BusRef,
+		enabled: Enabled,
+	})
+	.describe("Enable or disable EQ processing on a bus.");
+
+const SetMainEqOn = z
+	.object({
+		action: z.literal("set_main_eq_on"),
+		enabled: Enabled,
+	})
+	.describe("Enable or disable EQ processing on the main LR.");
+
+const SetBusEqMode = z
+	.object({
+		action: z.literal("set_bus_eq_mode"),
+		bus: BusRef,
+		mode: EqMode,
+	})
+	.describe("Choose between parametric and graphic EQ on a bus.");
+
+const SetMainEqMode = z
+	.object({
+		action: z.literal("set_main_eq_mode"),
+		mode: EqMode,
+	})
+	.describe("Choose between parametric and graphic EQ on the main LR.");
+
+const GeqBands = z
+	.array(
+		z.object({
+			frequency_hz: z
+				.number()
+				.min(20)
+				.max(20000)
+				.describe(
+					"Band frequency in Hz; snaps to the nearest of the 31 ISO third-octave bands.",
+				),
+			gain_db: z
+				.number()
+				.min(GEQ_GAIN_DB.min)
+				.max(GEQ_GAIN_DB.max)
+				.describe("Band gain in dB (-15 to +15)."),
+		}),
+	)
+	.min(1)
+	.describe("Bands to set. Bands not listed keep their value unless reset_others is true.");
+
+const ResetOthers = z
+	.boolean()
+	.optional()
+	.describe("Set every band not listed to 0 dB first (default false).");
+
+const SetBusGeq = z
+	.object({
+		action: z.literal("set_bus_geq"),
+		bus: BusRef,
+		bands: GeqBands,
+		reset_others: ResetOthers,
+	})
+	.describe("Set 31-band graphic EQ bands on a bus (active when the bus EQ mode is geq or teq).");
+
+const SetMainGeq = z
+	.object({
+		action: z.literal("set_main_geq"),
+		bands: GeqBands,
+		reset_others: ResetOthers,
+	})
+	.describe(
+		"Set 31-band graphic EQ bands on the main LR (active when the main EQ mode is geq or teq).",
+	);
+
 const SetChannelPreamp = z
 	.object({
 		action: z.literal("set_channel_preamp"),
@@ -374,6 +489,14 @@ export const Command = z
 		SetFxReturnMute,
 		SetFxReturnSendLevel,
 		SetChannelPreampTrim,
+		SetBusEq,
+		SetMainEq,
+		SetBusEqOn,
+		SetMainEqOn,
+		SetBusEqMode,
+		SetMainEqMode,
+		SetBusGeq,
+		SetMainGeq,
 		SetChannelPreamp,
 		SetHeadampGain,
 		SetChannelPan,

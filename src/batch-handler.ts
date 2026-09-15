@@ -2,7 +2,16 @@ import type { Command } from "./batch-schema.js";
 import { applyCompressor, applyGate } from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
-import { eqTypeToIndex, sendTapToIndex } from "./strip.js";
+import {
+	applyEqBand,
+	applyGeq,
+	applyOutputEqMode,
+	applyOutputEqOn,
+	eqBandAddress,
+	type OutputTarget,
+	outputLabel,
+} from "./output-eq.js";
+import { eqModeToIndex, sendTapToIndex } from "./strip.js";
 import * as xair from "./xair.js";
 
 export interface CommandResult {
@@ -46,37 +55,50 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 		case "set_channel_eq": {
 			const ch = resolveChannel(registry, cmd.channel);
 			xair.validateEqBand(cmd.band);
-			const parts: string[] = [];
-			if (cmd.type !== undefined) {
-				client.send(xair.chEqBand(ch, cmd.band, "type"), {
-					type: "integer",
-					value: eqTypeToIndex(cmd.type),
-				});
-				parts.push(cmd.type);
-			}
-			if (cmd.frequency_hz !== undefined) {
-				client.send(xair.chEqBand(ch, cmd.band, "f"), {
-					type: "float",
-					value: xair.eqFreqToFloat(cmd.frequency_hz),
-				});
-				parts.push(`${cmd.frequency_hz}Hz`);
-			}
-			if (cmd.gain_db !== undefined) {
-				client.send(xair.chEqBand(ch, cmd.band, "g"), {
-					type: "float",
-					value: xair.eqGainToFloat(cmd.gain_db),
-				});
-				parts.push(`${cmd.gain_db}dB`);
-			}
-			if (cmd.q !== undefined) {
-				client.send(xair.chEqBand(ch, cmd.band, "q"), {
-					type: "float",
-					value: xair.eqQToFloat(cmd.q),
-				});
-				parts.push(`Q=${cmd.q}`);
-			}
+			const parts = applyEqBand(client, (param) => xair.chEqBand(ch, cmd.band, param), cmd);
 			if (parts.length === 0) throw new Error("set_channel_eq: no EQ parameters given");
 			return `Ch ${ch} EQ band ${cmd.band}: ${parts.join(" ")}`;
+		}
+		case "set_bus_eq":
+		case "set_main_eq": {
+			const target: OutputTarget =
+				cmd.action === "set_bus_eq"
+					? { kind: "bus", bus: resolveBus(registry, cmd.bus) }
+					: { kind: "main" };
+			xair.validateBusEqBand(cmd.band);
+			const parts = applyEqBand(
+				client,
+				(param) => eqBandAddress(target, cmd.band, param),
+				cmd,
+			);
+			if (parts.length === 0) throw new Error(`${cmd.action}: no EQ parameters given`);
+			return `${outputLabel(target)} EQ band ${cmd.band}: ${parts.join(" ")}`;
+		}
+		case "set_bus_eq_on":
+		case "set_main_eq_on": {
+			const target: OutputTarget =
+				cmd.action === "set_bus_eq_on"
+					? { kind: "bus", bus: resolveBus(registry, cmd.bus) }
+					: { kind: "main" };
+			return applyOutputEqOn(client, target, cmd.enabled);
+		}
+		case "set_bus_eq_mode":
+		case "set_main_eq_mode": {
+			const target: OutputTarget =
+				cmd.action === "set_bus_eq_mode"
+					? { kind: "bus", bus: resolveBus(registry, cmd.bus) }
+					: { kind: "main" };
+			applyOutputEqMode(client, target, eqModeToIndex(cmd.mode));
+			return `${outputLabel(target)} EQ mode -> ${cmd.mode}`;
+		}
+		case "set_bus_geq":
+		case "set_main_geq": {
+			const target: OutputTarget =
+				cmd.action === "set_bus_geq"
+					? { kind: "bus", bus: resolveBus(registry, cmd.bus) }
+					: { kind: "main" };
+			const parts = applyGeq(client, target, cmd.bands, cmd.reset_others ?? false);
+			return `${outputLabel(target)} GEQ: ${parts.join(", ")}`;
 		}
 		case "set_channel_eq_on": {
 			const ch = resolveChannel(registry, cmd.channel);

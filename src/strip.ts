@@ -34,6 +34,16 @@ export function eqTypeToIndex(name: EqTypeName): number {
 	return idx;
 }
 
+/** Bus / main EQ modes: 6-band parametric, 31-band graphic, or "true" graphic. */
+export const EQ_MODE_NAMES = ["peq", "geq", "teq"] as const;
+export type EqModeName = (typeof EQ_MODE_NAMES)[number];
+
+export function eqModeToIndex(name: EqModeName): number {
+	const idx = EQ_MODE_NAMES.indexOf(name);
+	if (idx < 0) throw new Error(`Unknown EQ mode: ${name}`);
+	return idx;
+}
+
 export const SEND_TAP_NAMES = [
 	"in",
 	"pre_eq",
@@ -142,12 +152,14 @@ export interface EqBandSettings {
 
 export interface EqSettings {
 	on: boolean | null;
+	/** Only present for buses and main LR. */
+	mode?: string | null;
 	bands: EqBandSettings[];
 }
 
-export function decodeEq(v: BlockValues): EqSettings {
+export function decodeEq(v: BlockValues, numBands: number = xair.NUM_EQ_BANDS): EqSettings {
 	const bands: EqBandSettings[] = [];
-	for (let band = 1; band <= xair.NUM_EQ_BANDS; band++) {
+	for (let band = 1; band <= numBands; band++) {
 		const f = v[`eq/${band}/f`];
 		const g = v[`eq/${band}/g`];
 		const q = v[`eq/${band}/q`];
@@ -159,7 +171,9 @@ export function decodeEq(v: BlockValues): EqSettings {
 			q: typeof q === "number" ? round(xair.floatToEqQ(q), 2) : null,
 		});
 	}
-	return { on: decodeBool(v["eq/on"]), bands };
+	const settings: EqSettings = { on: decodeBool(v["eq/on"]), bands };
+	if ("eq/mode" in v) settings.mode = decodeEnum(v["eq/mode"], EQ_MODE_NAMES);
+	return settings;
 }
 
 function onOff(value: boolean | null): string {
@@ -170,9 +184,10 @@ function fmt(value: number | null, digits: number, unit: string): string {
 	return value === null ? "?" : `${value.toFixed(digits)}${unit}`;
 }
 
-export function formatEq(v: BlockValues): string {
-	const eq = decodeEq(v);
+export function formatEq(v: BlockValues, numBands: number = xair.NUM_EQ_BANDS): string {
+	const eq = decodeEq(v, numBands);
 	const parts = [onOff(eq.on)];
+	if (eq.mode !== undefined) parts.push(`mode ${eq.mode ?? "?"}`);
 	for (const b of eq.bands) {
 		parts.push(
 			`band ${b.band} ${b.type ?? "?"} ${fmt(b.frequency_hz, 0, " Hz")} ${fmt(b.gain_db, 1, " dB")} Q ${fmt(b.q, 2, "")}`,

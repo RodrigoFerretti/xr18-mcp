@@ -8,6 +8,7 @@ import {
 } from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
+import { formatGeq, formatOutputEq, geqReadPlan, outputEqReadPlan } from "./output-eq.js";
 import { eqReadPlan, formatEq, formatStrip, type ReadPlan, stripReadPlan } from "./strip.js";
 import * as xair from "./xair.js";
 
@@ -90,6 +91,32 @@ const GetChannelEq = z
 	})
 	.describe("Read a channel's EQ: on/off and type, frequency, gain, Q of all 4 bands.");
 
+const GetBusEq = z
+	.object({
+		query: z.literal("get_bus_eq"),
+		bus: BusRef,
+	})
+	.describe("Read a bus's EQ: on/off, mode (peq/geq/teq) and the 6 parametric bands.");
+
+const GetMainEq = z
+	.object({
+		query: z.literal("get_main_eq"),
+	})
+	.describe("Read the main LR EQ: on/off, mode (peq/geq/teq) and the 6 parametric bands.");
+
+const GetBusGeq = z
+	.object({
+		query: z.literal("get_bus_geq"),
+		bus: BusRef,
+	})
+	.describe("Read a bus's 31-band graphic EQ (bands away from 0 dB are listed).");
+
+const GetMainGeq = z
+	.object({
+		query: z.literal("get_main_geq"),
+	})
+	.describe("Read the main LR 31-band graphic EQ (bands away from 0 dB are listed).");
+
 const GetChannelStrip = z
 	.object({
 		query: z.literal("get_channel_strip"),
@@ -111,6 +138,10 @@ export const Query = z.discriminatedUnion("query", [
 	GetBusCompressor,
 	GetMainCompressor,
 	GetChannelEq,
+	GetBusEq,
+	GetMainEq,
+	GetBusGeq,
+	GetMainGeq,
 	GetChannelStrip,
 ]);
 
@@ -249,6 +280,26 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 			const ch = registry.resolve("channel", q.channel);
 			xair.validateChannel(ch);
 			return planQuery(`Ch ${ch} EQ`, eqReadPlan(ch), formatEq);
+		}
+		case "get_bus_eq": {
+			const bus = registry.resolve("bus", q.bus);
+			xair.validateBus(bus);
+			return planQuery(
+				`Bus ${bus} EQ`,
+				outputEqReadPlan({ kind: "bus", bus }),
+				formatOutputEq,
+			);
+		}
+		case "get_main_eq": {
+			return planQuery("Main EQ", outputEqReadPlan({ kind: "main" }), formatOutputEq);
+		}
+		case "get_bus_geq": {
+			const bus = registry.resolve("bus", q.bus);
+			xair.validateBus(bus);
+			return planQuery(`Bus ${bus} GEQ`, geqReadPlan({ kind: "bus", bus }), formatGeq);
+		}
+		case "get_main_geq": {
+			return planQuery("Main GEQ", geqReadPlan({ kind: "main" }), formatGeq);
 		}
 		case "get_channel_strip": {
 			const ch = registry.resolve("channel", q.channel);

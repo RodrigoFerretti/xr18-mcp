@@ -39,6 +39,13 @@ export function validateEqBand(band: number): void {
 }
 
 export const NUM_INPUT_CHANNELS = 16;
+export const NUM_BUS_EQ_BANDS = 6; // buses and main LR
+
+export function validateBusEqBand(band: number): void {
+	if (!Number.isInteger(band) || band < 1 || band > NUM_BUS_EQ_BANDS) {
+		throw new Error(`Bus/main EQ band must be 1-${NUM_BUS_EQ_BANDS}, got ${band}`);
+	}
+}
 
 /** Gate and dynamics blocks exist on input channels 1-16 only, not on the aux return. */
 export function validateDynamicsChannel(ch: number): void {
@@ -405,6 +412,106 @@ export function busConfigName(bus: number): string {
 
 export function busConfigColor(bus: number): string {
 	return `/bus/${bus}/config/color`;
+}
+
+// Bus and main LR EQ: 6 parametric bands, or a 31-band graphic EQ, selected by mode
+export const EQ_MODES = ["PEQ", "GEQ", "TEQ"] as const;
+
+export function busEqOn(bus: number): string {
+	validateBus(bus);
+	return `/bus/${bus}/eq/on`;
+}
+
+export function busEqMode(bus: number): string {
+	validateBus(bus);
+	return `/bus/${bus}/eq/mode`;
+}
+
+export function busEqBand(bus: number, band: number, param: EqBandParam): string {
+	validateBus(bus);
+	validateBusEqBand(band);
+	return `/bus/${bus}/eq/${band}/${param}`;
+}
+
+export function lrEqOn(): string {
+	return "/lr/eq/on";
+}
+
+export function lrEqMode(): string {
+	return "/lr/eq/mode";
+}
+
+export function lrEqBand(band: number, param: EqBandParam): string {
+	validateBusEqBand(band);
+	return `/lr/eq/${band}/${param}`;
+}
+
+/** The 31 ISO third-octave GEQ bands with the identifier the firmware uses in the address. */
+export const GEQ_BANDS: readonly { id: string; hz: number }[] = [
+	{ id: "20", hz: 20 },
+	{ id: "25", hz: 25 },
+	{ id: "31_5", hz: 31.5 },
+	{ id: "40", hz: 40 },
+	{ id: "50", hz: 50 },
+	{ id: "63", hz: 63 },
+	{ id: "80", hz: 80 },
+	{ id: "100", hz: 100 },
+	{ id: "125", hz: 125 },
+	{ id: "160", hz: 160 },
+	{ id: "200", hz: 200 },
+	{ id: "250", hz: 250 },
+	{ id: "315", hz: 315 },
+	{ id: "400", hz: 400 },
+	{ id: "500", hz: 500 },
+	{ id: "630", hz: 630 },
+	{ id: "800", hz: 800 },
+	{ id: "1k", hz: 1000 },
+	{ id: "1k25", hz: 1250 },
+	{ id: "1k6", hz: 1600 },
+	{ id: "2k", hz: 2000 },
+	{ id: "2k5", hz: 2500 },
+	{ id: "3k15", hz: 3150 },
+	{ id: "4k", hz: 4000 },
+	{ id: "5k", hz: 5000 },
+	{ id: "6k3", hz: 6300 },
+	{ id: "8k", hz: 8000 },
+	{ id: "10k", hz: 10000 },
+	{ id: "12k5", hz: 12500 },
+	{ id: "16k", hz: 16000 },
+	{ id: "20k", hz: 20000 },
+];
+
+export const GEQ_GAIN_DB = { min: -15, max: 15 } as const;
+
+/** Nearest GEQ band to a frequency (log distance). */
+export function geqBandForHz(hz: number): { id: string; hz: number } {
+	let best = GEQ_BANDS[0];
+	let bestDist = Number.POSITIVE_INFINITY;
+	for (const band of GEQ_BANDS) {
+		const dist = Math.abs(Math.log(band.hz) - Math.log(hz));
+		if (dist < bestDist) {
+			bestDist = dist;
+			best = band;
+		}
+	}
+	return best;
+}
+
+export function geqGainToFloat(db: number): number {
+	return linToFloat(GEQ_GAIN_DB.min, GEQ_GAIN_DB.max, db);
+}
+
+export function floatToGeqGain(val: number): number {
+	return floatToLin(GEQ_GAIN_DB.min, GEQ_GAIN_DB.max, val);
+}
+
+export function busGeq(bus: number, bandId: string): string {
+	validateBus(bus);
+	return `/bus/${bus}/geq/${bandId}`;
+}
+
+export function lrGeq(bandId: string): string {
+	return `/lr/geq/${bandId}`;
 }
 
 // Main LR

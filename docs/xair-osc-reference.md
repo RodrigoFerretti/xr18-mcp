@@ -29,7 +29,7 @@ Legend:
 | Preamp | headamp gain, phantom, polarity, HPF, USB return switch/trim | all (`set_channel_preamp`, `set_headamp_gain`, `set_channel_preamp_trim`) | hpslope (unverified) |
 | Gate | full | `set_channel_gate` / `get_channel_gate` | key source bus offset unverified |
 | Compressor | full, ch + bus + LR | `set_channel_compressor`, `set_bus_compressor`, `set_main_compressor` + `get_*` | key source bus offset unverified |
-| EQ | 4-band ch/rtn/aux (with band type), 6-band bus/LR + 31-band GEQ | 4-band type/f/g/q, on/off, read-back | bus/LR 6-band, GEQ |
+| EQ | 4-band ch/rtn/aux (with band type), 6-band bus/LR + 31-band GEQ | channel 4-band, bus/LR 6-band + mode + GEQ, all with read-back | rtn/aux EQ commands |
 | Config | name, color, input source, USB return source | name + color for channels and buses | insrc/rtnsrc |
 | Groups | 4 DCA, 4 mute groups | none | everything |
 | FX engines | 4 slots, type + up to 64 params | none | everything |
@@ -145,7 +145,7 @@ Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
 
 ## 4. Buses `/bus/1` … `/bus/6` (not zero-padded)
 
-Blocks: `config` (name, color), `dyn` (same as channel), `insert`, `eq` with **6 bands** (`/bus/N/eq/1..6/type|f|g|q`, plus `/bus/N/eq/on` and `/bus/N/eq/mode` = `PEQ, GEQ, TEQ`), `geq` (31 bands, addresses `/bus/N/geq/20`, `/25`, `/31`, … `/16k`, `/20k`, each linf −15..+15 dB), `mix` (`on`, `fader`, `lr` ?), `grp` (`dca`, `mute`). Status: OK for block presence, X32 for GEQ band naming.
+Blocks: `config` (name, color), `dyn` (same as channel), `insert`, `eq` with **6 bands** (`/bus/N/eq/1..6/type|f|g|q`, plus `/bus/N/eq/on` and `/bus/N/eq/mode` = `PEQ, GEQ, TEQ`), `geq` (31 bands; band ids are dot-free: `20, 25, 31_5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1k, 1k25, 1k6, 2k, 2k5, 3k15, 4k, 5k, 6k3, 8k, 10k, 12k5, 16k, 20k`; each linf −15..+15 dB), `mix` (`on`, `fader`, `lr` ?), `grp` (`dca`, `mute`). Status: OK (xair-api-python) for blocks, mode and GEQ band ids; the ±15 dB GEQ range follows the X32.
 
 ## 5. Main `/lr`
 

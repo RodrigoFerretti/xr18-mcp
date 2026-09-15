@@ -170,4 +170,33 @@ describe("executeBatchQuery", () => {
 		expect(json.sends.bus["3"].tap).toBe("pre_fader");
 		expect(json.gate.threshold_db).toBeNull();
 	});
+
+	it("reads bus/main EQ with mode and GEQ blocks", async () => {
+		const client = mockClient({
+			"/bus/2/eq/on": [1],
+			"/bus/2/eq/mode": [2],
+			"/lr/eq/on": [0],
+			"/lr/geq/100": [xair.geqGainToFloat(-2)],
+			"/bus/2/geq/4k": [xair.geqGainToFloat(3)],
+		});
+		const results = await executeBatchQuery(
+			[
+				{ query: "get_bus_eq", bus: 2 },
+				{ query: "get_main_eq" },
+				{ query: "get_bus_geq", bus: 2 },
+				{ query: "get_main_geq" },
+			],
+			client,
+			registry,
+		);
+		expect(queryMultiCalls(client)[0]).toHaveLength(26 + 26 + 31 + 31);
+		expect(results[0].message.startsWith("Bus 2 EQ: on; mode teq; band 1")).toBe(true);
+		expect(results[1].message.startsWith("Main EQ: off; mode ?; band 1")).toBe(true);
+		expect(results[2].message).toBe(
+			"Bus 2 GEQ: 4 kHz +3 dB; other bands 0 dB; 30 bands no reply",
+		);
+		expect(results[3].message).toBe(
+			"Main GEQ: 100 Hz -2 dB; other bands 0 dB; 30 bands no reply",
+		);
+	});
 });

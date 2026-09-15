@@ -401,6 +401,81 @@ describe("executeBatch", () => {
 		expect(registry.resolve("bus", "wedges")).toBe(2);
 	});
 
+	it("handles bus and main parametric EQ, on/off and mode", () => {
+		registry.assignName("bus", 1, "Wedges");
+		const results = executeBatch(
+			[
+				{
+					action: "set_bus_eq",
+					bus: "Wedges",
+					band: 6,
+					type: "high_cut",
+					frequency_hz: 12000,
+				},
+				{ action: "set_main_eq", band: 1, type: "low_cut", frequency_hz: 35 },
+				{ action: "set_bus_eq_on", bus: 1, enabled: true },
+				{ action: "set_main_eq_on", enabled: false },
+				{ action: "set_bus_eq_mode", bus: 2, mode: "geq" },
+				{ action: "set_main_eq_mode", mode: "peq" },
+				{ action: "set_main_eq", band: 7, gain_db: 1 },
+				{ action: "set_bus_eq", bus: 1, band: 2 },
+			],
+			client,
+			registry,
+		);
+		expect(results.slice(0, 6).map((r) => r.message)).toEqual([
+			"Bus 1 EQ band 6: high_cut 12000Hz",
+			"Main EQ band 1: low_cut 35Hz",
+			"Bus 1 EQ on",
+			"Main EQ off",
+			"Bus 2 EQ mode -> geq",
+			"Main EQ mode -> peq",
+		]);
+		expect(client.send).toHaveBeenCalledWith("/bus/1/eq/6/type", { type: "integer", value: 5 });
+		expect(client.send).toHaveBeenCalledWith("/lr/eq/1/f", {
+			type: "float",
+			value: expect.closeTo(xair.eqFreqToFloat(35), 5),
+		});
+		expect(client.send).toHaveBeenCalledWith("/bus/1/eq/on", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledWith("/lr/eq/on", { type: "integer", value: 0 });
+		expect(client.send).toHaveBeenCalledWith("/bus/2/eq/mode", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledWith("/lr/eq/mode", { type: "integer", value: 0 });
+		expect(results[6].status).toBe("error");
+		expect(results[6].message).toContain("Bus/main EQ band must be 1-6");
+		expect(results[7].status).toBe("error");
+		expect(results[7].message).toContain("no EQ parameters");
+	});
+
+	it("handles bus and main GEQ", () => {
+		const results = executeBatch(
+			[
+				{
+					action: "set_bus_geq",
+					bus: 3,
+					bands: [{ frequency_hz: 315, gain_db: -3 }],
+				},
+				{
+					action: "set_main_geq",
+					bands: [{ frequency_hz: 8000, gain_db: 2 }],
+					reset_others: true,
+				},
+			],
+			client,
+			registry,
+		);
+		expect(results[0].message).toBe("Bus 3 GEQ: 315 Hz -3 dB");
+		expect(results[1].message).toBe("Main GEQ: 30 other bands reset to 0 dB, 8 kHz +2 dB");
+		expect(client.send).toHaveBeenCalledWith("/bus/3/geq/315", {
+			type: "float",
+			value: expect.closeTo(xair.geqGainToFloat(-3), 6),
+		});
+		expect(client.send).toHaveBeenCalledWith("/lr/geq/8k", {
+			type: "float",
+			value: expect.closeTo(xair.geqGainToFloat(2), 6),
+		});
+		expect(client.send).toHaveBeenCalledTimes(1 + 31);
+	});
+
 	it("handles set_channel_gate", () => {
 		registry.assignName("channel", 4, "Tom");
 		const commands: Command[] = [

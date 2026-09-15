@@ -4,7 +4,11 @@ import {
 	busConfigColor,
 	busConfigName,
 	busDyn,
+	busEqBand,
+	busEqMode,
+	busEqOn,
 	busFader,
+	busGeq,
 	busMute,
 	chConfigColor,
 	chConfigName,
@@ -31,6 +35,7 @@ import {
 	floatToEqFreq,
 	floatToEqGain,
 	floatToEqQ,
+	floatToGeqGain,
 	floatToHeadampGainDb,
 	floatToHpf,
 	floatToLin,
@@ -42,6 +47,8 @@ import {
 	fxReturnSendLevel,
 	fxSendFader,
 	fxSendMute,
+	GEQ_BANDS,
+	geqGainToFloat,
 	headampGain,
 	headampGainDbToFloat,
 	headampPhantom,
@@ -49,12 +56,17 @@ import {
 	linToFloat,
 	logToFloat,
 	lrDyn,
+	lrEqBand,
+	lrEqMode,
+	lrEqOn,
+	lrGeq,
 	mainFader,
 	mainMute,
 	NEG_INF_DB,
 	panToFloat,
 	trimDbToFloat,
 	validateBus,
+	validateBusEqBand,
 	validateChannel,
 	validateDynamicsChannel,
 	validateEqBand,
@@ -397,5 +409,33 @@ describe("channel strip addresses and conversions", () => {
 		expect(colorLabel(2)).toBe("green");
 		expect(colorLabel(15)).toBe("white (inverted)");
 		expect(colorLabel(16)).toBe("?(16)");
+	});
+});
+
+describe("bus and main EQ addresses", () => {
+	it("builds 6-band EQ, mode and GEQ addresses", () => {
+		expect(busEqOn(1)).toBe("/bus/1/eq/on");
+		expect(busEqMode(6)).toBe("/bus/6/eq/mode");
+		expect(busEqBand(2, 6, "q")).toBe("/bus/2/eq/6/q");
+		expect(lrEqOn()).toBe("/lr/eq/on");
+		expect(lrEqMode()).toBe("/lr/eq/mode");
+		expect(lrEqBand(3, "type")).toBe("/lr/eq/3/type");
+		expect(busGeq(4, "31_5")).toBe("/bus/4/geq/31_5");
+		expect(lrGeq("12k5")).toBe("/lr/geq/12k5");
+		expect(() => busEqBand(1, 7, "f")).toThrow("Bus/main EQ band must be 1-6");
+		expect(() => validateBusEqBand(0)).toThrow("Bus/main EQ band must be 1-6");
+		expect(() => busEqOn(7)).toThrow("Bus must be 1-6");
+	});
+
+	it("has 31 ascending GEQ bands with dot-free ids and a linear +/-15 dB gain", () => {
+		expect(GEQ_BANDS).toHaveLength(31);
+		for (let i = 1; i < GEQ_BANDS.length; i++) {
+			expect(GEQ_BANDS[i].hz).toBeGreaterThan(GEQ_BANDS[i - 1].hz);
+			expect(GEQ_BANDS[i].id).not.toContain(".");
+		}
+		expect(geqGainToFloat(-15)).toBeCloseTo(0, 6);
+		expect(geqGainToFloat(0)).toBeCloseTo(0.5, 6);
+		expect(geqGainToFloat(15)).toBeCloseTo(1, 6);
+		expect(floatToGeqGain(0.25)).toBeCloseTo(-7.5, 6);
 	});
 });
