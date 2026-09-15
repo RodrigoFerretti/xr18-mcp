@@ -199,6 +199,88 @@ describe("executeBatch", () => {
 		});
 	});
 
+	it("handles set_channel_gate", () => {
+		registry.assignName("channel", 4, "Tom");
+		const commands: Command[] = [
+			{
+				action: "set_channel_gate",
+				channel: "Tom",
+				enabled: true,
+				mode: "gate",
+				threshold_db: -40,
+				release_ms: 200,
+			},
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message).toBe("Ch 4 gate: mode gate, thr -40 dB, release 200 ms, on");
+		expect(client.send).toHaveBeenCalledWith("/ch/04/gate/mode", { type: "integer", value: 3 });
+		expect(client.send).toHaveBeenCalledWith("/ch/04/gate/thr", {
+			type: "float",
+			value: expect.closeTo(0.5, 4),
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/04/gate/on", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledTimes(4);
+	});
+
+	it("rejects gate and compressor on the aux return", () => {
+		const commands: Command[] = [
+			{ action: "set_channel_gate", channel: 17, enabled: true },
+			{ action: "set_channel_compressor", channel: 17, enabled: true },
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("error");
+		expect(results[0].message).toContain("aux return");
+		expect(results[1].status).toBe("error");
+		expect(client.send).not.toHaveBeenCalled();
+	});
+
+	it("handles set_channel_compressor and snaps the ratio", () => {
+		const commands: Command[] = [
+			{ action: "set_channel_compressor", channel: 1, threshold_db: -20, ratio: 3.5 },
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message).toBe(
+			"Ch 1 comp: thr -20 dB, ratio 4:1 (requested 3.5, snapped to nearest available)",
+		);
+		expect(client.send).toHaveBeenCalledWith("/ch/01/dyn/ratio", { type: "integer", value: 6 });
+	});
+
+	it("handles bus and main compressors", () => {
+		registry.assignName("bus", 3, "Drums");
+		const commands: Command[] = [
+			{ action: "set_bus_compressor", bus: "Drums", threshold_db: -30 },
+			{ action: "set_main_compressor", enabled: false },
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].message).toBe("Bus 3 comp: thr -30 dB");
+		expect(results[1].message).toBe("Main comp: off");
+		expect(client.send).toHaveBeenCalledWith("/bus/3/dyn/thr", {
+			type: "float",
+			value: expect.closeTo(0.5, 4),
+		});
+		expect(client.send).toHaveBeenCalledWith("/lr/dyn/on", { type: "integer", value: 0 });
+	});
+
+	it("errors when a dynamics command carries no parameters", () => {
+		const commands: Command[] = [
+			{ action: "set_channel_gate", channel: 1 },
+			{ action: "set_main_compressor" },
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("error");
+		expect(results[0].message).toContain("no gate parameters");
+		expect(results[1].status).toBe("error");
+		expect(results[1].message).toContain("no compressor parameters");
+		expect(client.send).not.toHaveBeenCalled();
+	});
+
 	it("handles raw OSC with args", () => {
 		const commands: Command[] = [
 			{

@@ -6,7 +6,7 @@ export function registerQueryTools(server: McpServer, state: MixerState): void {
 	server.tool(
 		"query",
 		"Query multiple mixer parameters in a single call. " +
-			"All queries are sent simultaneously over UDP — one round-trip instead of many sequential ones. " +
+			"Reads faders, sends, trim, and whole gate/compressor blocks in one call. " +
 			"Each query is independent — a failure on one does not stop the rest.",
 		BatchQueryInput.shape,
 		async ({ queries }) => {

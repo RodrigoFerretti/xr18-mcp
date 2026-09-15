@@ -1,4 +1,5 @@
 import type { Command } from "./batch-schema.js";
+import { applyCompressor, applyGate } from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
 import * as xair from "./xair.js";
@@ -126,6 +127,40 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 			const trimFloat = xair.trimDbToFloat(cmd.trim_db);
 			client.send(xair.chPreampTrim(ch), { type: "float", value: trimFloat });
 			return `Ch ${ch} preamp trim -> ${cmd.trim_db} dB`;
+		}
+		case "set_channel_gate": {
+			const ch = resolveChannel(registry, cmd.channel);
+			xair.validateDynamicsChannel(ch);
+			const parts = applyGate(client, (param) => xair.chGate(ch, param), registry, cmd);
+			if (parts.length === 0) throw new Error("set_channel_gate: no gate parameters given");
+			return `Ch ${ch} gate: ${parts.join(", ")}`;
+		}
+		case "set_channel_compressor": {
+			const ch = resolveChannel(registry, cmd.channel);
+			xair.validateDynamicsChannel(ch);
+			const parts = applyCompressor(client, (param) => xair.chDyn(ch, param), registry, cmd);
+			if (parts.length === 0) {
+				throw new Error("set_channel_compressor: no compressor parameters given");
+			}
+			return `Ch ${ch} comp: ${parts.join(", ")}`;
+		}
+		case "set_bus_compressor": {
+			const bus = resolveBus(registry, cmd.bus);
+			const parts = applyCompressor(
+				client,
+				(param) => xair.busDyn(bus, param),
+				registry,
+				cmd,
+			);
+			if (parts.length === 0)
+				throw new Error("set_bus_compressor: no compressor parameters given");
+			return `Bus ${bus} comp: ${parts.join(", ")}`;
+		}
+		case "set_main_compressor": {
+			const parts = applyCompressor(client, (param) => xair.lrDyn(param), registry, cmd);
+			if (parts.length === 0)
+				throw new Error("set_main_compressor: no compressor parameters given");
+			return `Main comp: ${parts.join(", ")}`;
 		}
 		case "send_raw_osc": {
 			if (cmd.args && cmd.args.length > 0) {

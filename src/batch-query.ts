@@ -1,4 +1,11 @@
 import { z } from "zod";
+import {
+	type BlockValues,
+	DYN_READ_PARAMS,
+	formatCompressor,
+	formatGate,
+	GATE_READ_PARAMS,
+} from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
 import * as xair from "./xair.js";
@@ -48,12 +55,43 @@ const GetChannelPreampTrim = z
 	})
 	.describe("Query a channel's USB-return trim (/preamp/rtntrim), not its analog preamp gain.");
 
+const GetChannelGate = z
+	.object({
+		query: z.literal("get_channel_gate"),
+		channel: ChannelRef,
+	})
+	.describe("Read a channel's complete gate settings (input channels 1-16 only).");
+
+const GetChannelCompressor = z
+	.object({
+		query: z.literal("get_channel_compressor"),
+		channel: ChannelRef,
+	})
+	.describe("Read a channel's complete compressor settings (input channels 1-16 only).");
+
+const GetBusCompressor = z
+	.object({
+		query: z.literal("get_bus_compressor"),
+		bus: BusRef,
+	})
+	.describe("Read a bus's complete compressor settings.");
+
+const GetMainCompressor = z
+	.object({
+		query: z.literal("get_main_compressor"),
+	})
+	.describe("Read the main LR compressor settings.");
+
 export const Query = z.discriminatedUnion("query", [
 	GetChannelFader,
 	GetChannelSendToBus,
 	GetBusFader,
 	GetMainFader,
 	GetChannelPreampTrim,
+	GetChannelGate,
+	GetChannelCompressor,
+	GetBusCompressor,
+	GetMainCompressor,
 ]);
 
 export type Query = z.infer<typeof Query>;
@@ -63,19 +101,51 @@ export const BatchQueryInput = z.object({
 		.array(Query)
 		.min(1)
 		.describe(
-			"Array of mixer queries to execute in parallel. " +
-				"All queries are sent simultaneously over UDP, results collected in one response.",
+			"Array of mixer queries to execute in one call, results collected in one response.",
 		),
 });
 
 export type BatchQueryInput = z.infer<typeof BatchQueryInput>;
 
-// --- Resolve query to OSC address ---
+// --- Resolve query to OSC addresses ---
 
 interface ResolvedQuery {
-	address: string;
 	label: string;
-	kind: "fader" | "trim";
+	addresses: string[];
+	/** Called with one response per address (null = timeout); at least one is non-null. */
+	format: (responses: (unknown[] | null)[]) => string;
+}
+
+function levelQuery(label: string, address: string, kind: "fader" | "trim"): ResolvedQuery {
+	return {
+		label,
+		addresses: [address],
+		format: ([resp]) => {
+			const floatVal = typeof resp?.[0] === "number" ? resp[0] : 0;
+			const db = kind === "trim" ? xair.floatToTrimDb(floatVal) : xair.faderToDb(floatVal);
+			return `${db.toFixed(1)} dB (float ${floatVal.toFixed(4)})`;
+		},
+	};
+}
+
+function blockQuery(
+	label: string,
+	params: readonly string[],
+	addressOf: (param: string) => string,
+	formatBlock: (values: BlockValues) => string,
+): ResolvedQuery {
+	return {
+		label,
+		addresses: params.map(addressOf),
+		format: (responses) => {
+			const values: BlockValues = {};
+			params.forEach((param, i) => {
+				const resp = responses[i];
+				values[param] = resp === null || resp === undefined ? null : resp[0];
+			});
+			return formatBlock(values);
+		},
+	};
 }
 
 function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
@@ -83,31 +153,65 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 		case "get_channel_fader": {
 			const ch = registry.resolve("channel", q.channel);
 			xair.validateChannel(ch);
-			return { address: xair.chFader(ch), label: `Ch ${ch} fader`, kind: "fader" };
+			return levelQuery(`Ch ${ch} fader`, xair.chFader(ch), "fader");
 		}
 		case "get_channel_send_to_bus": {
 			const ch = registry.resolve("channel", q.channel);
 			xair.validateChannel(ch);
 			const bus = registry.resolve("bus", q.bus);
 			xair.validateBus(bus);
-			return {
-				address: xair.chSendLevel(ch, bus),
-				label: `Ch ${ch} -> Bus ${bus} send`,
-				kind: "fader",
-			};
+			return levelQuery(`Ch ${ch} -> Bus ${bus} send`, xair.chSendLevel(ch, bus), "fader");
 		}
 		case "get_bus_fader": {
 			const bus = registry.resolve("bus", q.bus);
 			xair.validateBus(bus);
-			return { address: xair.busFader(bus), label: `Bus ${bus} fader`, kind: "fader" };
+			return levelQuery(`Bus ${bus} fader`, xair.busFader(bus), "fader");
 		}
 		case "get_main_fader": {
-			return { address: xair.mainFader(), label: "Main fader", kind: "fader" };
+			return levelQuery("Main fader", xair.mainFader(), "fader");
 		}
 		case "get_channel_preamp_trim": {
 			const ch = registry.resolve("channel", q.channel);
 			xair.validateChannel(ch);
-			return { address: xair.chPreampTrim(ch), label: `Ch ${ch} preamp trim`, kind: "trim" };
+			return levelQuery(`Ch ${ch} preamp trim`, xair.chPreampTrim(ch), "trim");
+		}
+		case "get_channel_gate": {
+			const ch = registry.resolve("channel", q.channel);
+			xair.validateDynamicsChannel(ch);
+			return blockQuery(
+				`Ch ${ch} gate`,
+				GATE_READ_PARAMS,
+				(param) => xair.chGate(ch, param as xair.GateParam),
+				formatGate,
+			);
+		}
+		case "get_channel_compressor": {
+			const ch = registry.resolve("channel", q.channel);
+			xair.validateDynamicsChannel(ch);
+			return blockQuery(
+				`Ch ${ch} comp`,
+				DYN_READ_PARAMS,
+				(param) => xair.chDyn(ch, param as xair.DynParam),
+				formatCompressor,
+			);
+		}
+		case "get_bus_compressor": {
+			const bus = registry.resolve("bus", q.bus);
+			xair.validateBus(bus);
+			return blockQuery(
+				`Bus ${bus} comp`,
+				DYN_READ_PARAMS,
+				(param) => xair.busDyn(bus, param as xair.DynParam),
+				formatCompressor,
+			);
+		}
+		case "get_main_compressor": {
+			return blockQuery(
+				"Main comp",
+				DYN_READ_PARAMS,
+				(param) => xair.lrDyn(param as xair.DynParam),
+				formatCompressor,
+			);
 		}
 	}
 }
@@ -132,45 +236,31 @@ export async function executeBatchQuery(
 		}
 	});
 
-	// Collect valid addresses for parallel query
-	const validIndices: number[] = [];
+	// Flatten the addresses of every valid query into one request
 	const addresses: string[] = [];
-	for (let i = 0; i < resolved.length; i++) {
-		if (!(resolved[i] instanceof Error)) {
-			validIndices.push(i);
-			addresses.push((resolved[i] as ResolvedQuery).address);
-		}
+	for (const r of resolved) {
+		if (!(r instanceof Error)) addresses.push(...r.addresses);
 	}
 
-	// Fire all queries in parallel
 	const responses = addresses.length > 0 ? await client.queryMulti(addresses) : [];
 
-	// Build results
+	// Hand each query its slice of the responses
 	const results: QueryResult[] = [];
-	let responseIdx = 0;
+	let offset = 0;
 
 	for (let i = 0; i < resolved.length; i++) {
 		const r = resolved[i];
 		if (r instanceof Error) {
 			results.push({ index: i, status: "error", message: r.message });
+			continue;
+		}
+		const slice = responses.slice(offset, offset + r.addresses.length);
+		offset += r.addresses.length;
+
+		if (slice.every((resp) => resp === null)) {
+			results.push({ index: i, status: "ok", message: `${r.label}: no response (timeout)` });
 		} else {
-			const resp = responses[responseIdx++];
-			if (resp === null) {
-				results.push({
-					index: i,
-					status: "ok",
-					message: `${r.label}: no response (timeout)`,
-				});
-			} else {
-				const floatVal = typeof resp[0] === "number" ? resp[0] : 0;
-				const db =
-					r.kind === "trim" ? xair.floatToTrimDb(floatVal) : xair.faderToDb(floatVal);
-				results.push({
-					index: i,
-					status: "ok",
-					message: `${r.label}: ${db.toFixed(1)} dB (float ${floatVal.toFixed(4)})`,
-				});
-			}
+			results.push({ index: i, status: "ok", message: `${r.label}: ${r.format(slice)}` });
 		}
 	}
 

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
 	AUX_CHANNEL,
 	busConfigName,
+	busDyn,
 	busFader,
 	busMute,
 	chConfigName,
+	chDyn,
 	chEqBand,
 	chEqOn,
 	chFader,
+	chGate,
 	chMute,
 	chPreampTrim,
 	chSendLevel,
@@ -20,6 +23,8 @@ import {
 	floatToEqGain,
 	floatToEqQ,
 	floatToHeadampGainDb,
+	floatToLin,
+	floatToLog,
 	floatToTrimDb,
 	fxReturnFader,
 	fxReturnMute,
@@ -28,12 +33,16 @@ import {
 	fxSendMute,
 	headampGain,
 	headampGainDbToFloat,
+	linToFloat,
+	logToFloat,
+	lrDyn,
 	mainFader,
 	mainMute,
 	NEG_INF_DB,
 	trimDbToFloat,
 	validateBus,
 	validateChannel,
+	validateDynamicsChannel,
 	validateEqBand,
 	validateFxReturn,
 	validateFxSlot,
@@ -288,5 +297,47 @@ describe("validation", () => {
 		expect(() => validateEqBand(5)).toThrow();
 		expect(() => validateEqBand(1)).not.toThrow();
 		expect(() => validateEqBand(4)).not.toThrow();
+	});
+});
+
+describe("generic linf/logf mappings", () => {
+	it("linear: endpoints, midpoint, clamping and round trip", () => {
+		expect(linToFloat(-80, 0, -80)).toBeCloseTo(0, 6);
+		expect(linToFloat(-80, 0, 0)).toBeCloseTo(1, 6);
+		expect(linToFloat(-80, 0, -40)).toBeCloseTo(0.5, 6);
+		expect(linToFloat(-80, 0, -100)).toBeCloseTo(0, 6);
+		expect(floatToLin(-80, 0, 1.5)).toBeCloseTo(0, 6);
+		for (const v of [3, 10, 30, 60]) {
+			expect(floatToLin(3, 60, linToFloat(3, 60, v))).toBeCloseTo(v, 6);
+		}
+	});
+
+	it("logarithmic: endpoints, geometric midpoint, clamping and round trip", () => {
+		expect(logToFloat(5, 4000, 5)).toBeCloseTo(0, 6);
+		expect(logToFloat(5, 4000, 4000)).toBeCloseTo(1, 6);
+		expect(logToFloat(5, 4000, Math.sqrt(5 * 4000))).toBeCloseTo(0.5, 6);
+		expect(logToFloat(5, 4000, 1)).toBeCloseTo(0, 6);
+		expect(floatToLog(5, 4000, 2)).toBeCloseTo(4000, 6);
+		for (const v of [0.02, 1, 30, 500, 2000]) {
+			expect(floatToLog(0.02, 2000, logToFloat(0.02, 2000, v))).toBeCloseTo(v, 6);
+		}
+	});
+});
+
+describe("gate and dynamics addresses", () => {
+	it("builds channel gate/dyn, bus dyn and LR dyn addresses", () => {
+		expect(chGate(1, "thr")).toBe("/ch/01/gate/thr");
+		expect(chGate(16, "filter/f")).toBe("/ch/16/gate/filter/f");
+		expect(chDyn(7, "ratio")).toBe("/ch/07/dyn/ratio");
+		expect(busDyn(3, "on")).toBe("/bus/3/dyn/on");
+		expect(lrDyn("mgain")).toBe("/lr/dyn/mgain");
+	});
+
+	it("rejects channels without a gate/dyn block", () => {
+		expect(() => validateDynamicsChannel(AUX_CHANNEL)).toThrow("aux return");
+		expect(() => validateDynamicsChannel(0)).toThrow("input channels 1-16");
+		expect(() => chGate(AUX_CHANNEL, "on")).toThrow("aux return");
+		expect(() => chDyn(17, "on")).toThrow("input channels 1-16");
+		expect(() => busDyn(7, "on")).toThrow("Bus must be 1-6");
 	});
 });

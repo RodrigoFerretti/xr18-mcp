@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CompressorFields, GateFields } from "./dynamics.js";
 
 // --- Shared field schemas ---
 
@@ -186,6 +187,47 @@ const SetChannelPreampTrim = z
 	})
 	.describe("Set a channel's USB-return trim (/preamp/rtntrim). Not the analog preamp gain.");
 
+const SetChannelGate = z
+	.object({
+		action: z.literal("set_channel_gate"),
+		channel: ChannelRef,
+		...GateFields,
+	})
+	.describe(
+		"Set any subset of a channel's gate/expander parameters (input channels 1-16 only). " +
+			"Omitted fields are left unchanged.",
+	);
+
+const SetChannelCompressor = z
+	.object({
+		action: z.literal("set_channel_compressor"),
+		channel: ChannelRef,
+		...CompressorFields,
+	})
+	.describe(
+		"Set any subset of a channel's compressor/expander parameters (input channels 1-16 only). " +
+			"Omitted fields are left unchanged.",
+	);
+
+const SetBusCompressor = z
+	.object({
+		action: z.literal("set_bus_compressor"),
+		bus: BusRef,
+		...CompressorFields,
+	})
+	.describe(
+		"Set any subset of a bus's compressor parameters. Omitted fields are left unchanged.",
+	);
+
+const SetMainCompressor = z
+	.object({
+		action: z.literal("set_main_compressor"),
+		...CompressorFields,
+	})
+	.describe(
+		"Set any subset of the main LR compressor parameters. Omitted fields are left unchanged.",
+	);
+
 const SendRawOsc = z
 	.object({
 		action: z.literal("send_raw_osc"),
@@ -216,6 +258,10 @@ export const Command = z
 		SetFxReturnMute,
 		SetFxReturnSendLevel,
 		SetChannelPreampTrim,
+		SetChannelGate,
+		SetChannelCompressor,
+		SetBusCompressor,
+		SetMainCompressor,
 		SendRawOsc,
 	])
 	.describe("A single mixer command. Use the 'action' field to choose the command type.");

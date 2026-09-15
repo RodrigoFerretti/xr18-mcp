@@ -38,6 +38,18 @@ export function validateEqBand(band: number): void {
 	}
 }
 
+export const NUM_INPUT_CHANNELS = 16;
+
+/** Gate and dynamics blocks exist on input channels 1-16 only, not on the aux return. */
+export function validateDynamicsChannel(ch: number): void {
+	if (!Number.isInteger(ch) || ch < 1 || ch > NUM_INPUT_CHANNELS) {
+		const hint = ch === AUX_CHANNEL ? " (the aux return has no gate or compressor)" : "";
+		throw new Error(
+			`Gate/compressor are only available on input channels 1-${NUM_INPUT_CHANNELS}, got ${ch}${hint}`,
+		);
+	}
+}
+
 // --- dB <-> fader float conversion ---
 
 const DB_TABLE: [number, number][] = [
@@ -81,6 +93,30 @@ export function faderToDb(val: number): number {
 	}
 
 	return NEG_INF_DB;
+}
+
+// --- Generic normalized-float mappings (the X AIR "linf" / "logf" parameter types) ---
+
+/** Linear parameter: float 0..1 maps to min..max. */
+export function linToFloat(min: number, max: number, value: number): number {
+	const clamped = Math.max(min, Math.min(max, value));
+	return (clamped - min) / (max - min);
+}
+
+export function floatToLin(min: number, max: number, val: number): number {
+	const clamped = Math.max(0, Math.min(1, val));
+	return min + clamped * (max - min);
+}
+
+/** Logarithmic parameter: float 0..1 maps to min..max on a log scale (min must be > 0). */
+export function logToFloat(min: number, max: number, value: number): number {
+	const clamped = Math.max(min, Math.min(max, value));
+	return Math.log(clamped / min) / Math.log(max / min);
+}
+
+export function floatToLog(min: number, max: number, val: number): number {
+	const clamped = Math.max(0, Math.min(1, val));
+	return min * (max / min) ** clamped;
 }
 
 // --- Preamp trim <-> float conversion ---
@@ -173,6 +209,59 @@ export function chEqBand(ch: number, band: number, param: "f" | "g" | "q"): stri
 
 export function chEqOn(ch: number): string {
 	return `${chPrefix(ch)}/eq/on`;
+}
+
+// Gate and dynamics (compressor/expander) blocks.
+// Gate: input channels only. Dyn: input channels, buses and main LR.
+export type GateParam =
+	| "on"
+	| "mode"
+	| "thr"
+	| "range"
+	| "attack"
+	| "hold"
+	| "release"
+	| "keysrc"
+	| "filter/on"
+	| "filter/type"
+	| "filter/f";
+
+export type DynParam =
+	| "on"
+	| "mode"
+	| "det"
+	| "env"
+	| "thr"
+	| "ratio"
+	| "knee"
+	| "mgain"
+	| "attack"
+	| "hold"
+	| "release"
+	| "mix"
+	| "auto"
+	| "keysrc"
+	| "filter/on"
+	| "filter/type"
+	| "filter/f";
+
+export function chGate(ch: number, param: GateParam): string {
+	validateDynamicsChannel(ch);
+	return `/ch/${pad(ch)}/gate/${param}`;
+}
+
+export function chDyn(ch: number, param: DynParam): string {
+	validateDynamicsChannel(ch);
+	return `/ch/${pad(ch)}/dyn/${param}`;
+}
+
+export function busDyn(bus: number, param: DynParam): string {
+	validateBus(bus);
+	return `/bus/${bus}/dyn/${param}`;
+}
+
+export function lrDyn(param: DynParam): string {
+	return `/lr/dyn/${param}`;
 }
 
 export function chPreampTrim(ch: number): string {
