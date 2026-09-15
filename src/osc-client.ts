@@ -6,6 +6,11 @@ export class OscClient {
 	readonly port: number;
 	private socket: Socket;
 	private _connected = true;
+	private readonly _bindPromise: Promise<void>;
+
+	// Serialization queue: only one query in-flight at a time to avoid
+	// overwhelming the MR18's embedded network stack.
+	private _queryQueue: Promise<unknown> = Promise.resolve();
 
 	constructor(ip: string, port: number = 10024) {
 		this.ip = ip;
@@ -13,6 +18,23 @@ export class OscClient {
 		this.socket = createSocket("udp4");
 		// Don't let the socket keep the process alive
 		this.socket.unref();
+		// Never let an async socket error crash the process; failed queries
+		// surface as timeouts instead.
+		this.socket.on("error", () => {});
+		// Bind immediately so replies have somewhere to land. dgram queues
+		// send() calls issued while the bind is in flight, so send() stays
+		// synchronous, and binding once up front avoids the
+		// ERR_SOCKET_ALREADY_BOUND that would follow a send-before-query
+		// (send() implicitly binds the socket).
+		this._bindPromise = new Promise<void>((resolve, reject) => {
+			this.socket.once("error", reject);
+			this.socket.bind(0, () => {
+				this.socket.removeListener("error", reject);
+				resolve();
+			});
+		});
+		// Don't surface an unhandled rejection if nothing awaits the bind
+		this._bindPromise.catch(() => {});
 	}
 
 	get connected(): boolean {
@@ -35,41 +57,42 @@ export class OscClient {
 			throw new Error("Not connected to mixer");
 		}
 
-		const sock = createSocket("udp4");
+		// Serialize queries so only one is in-flight at a time
+		const result = this._queryQueue.then(() => this._doQuery(address, timeout));
+		this._queryQueue = result.catch(() => {});
+		return result;
+	}
+
+	private async _doQuery(address: string, timeout: number): Promise<unknown[] | null> {
+		await this._bindPromise;
 
 		return new Promise<unknown[] | null>((resolve) => {
 			const timer = setTimeout(() => {
-				sock.close();
+				this.socket.removeListener("message", handler);
 				resolve(null);
 			}, timeout);
 
-			sock.on("message", (msg) => {
-				clearTimeout(timer);
+			const handler = (msg: Buffer) => {
 				try {
 					const parsed = fromBuffer(msg);
-					if (parsed.oscType === "message") {
-						const args = parsed.args.map((a) => {
-							if ("value" in a) return a.value;
-							return null;
-						});
-						sock.close();
+					if (parsed.oscType === "message" && parsed.address === address) {
+						clearTimeout(timer);
+						this.socket.removeListener("message", handler);
+						const args = parsed.args.map((a) => ("value" in a ? a.value : null));
 						resolve(args);
-					} else {
-						sock.close();
-						resolve(null);
 					}
+					// Ignore messages for other addresses — they'll be
+					// picked up by the correct pending query or discarded.
 				} catch {
-					sock.close();
-					resolve(null);
+					// skip malformed
 				}
-			});
+			};
 
-			sock.bind(0, () => {
-				// Send the query through this socket so the reply comes back here
-				const buf = toBuffer({ address, args: [] });
-				const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-				sock.send(bytes, 0, bytes.length, this.port, this.ip);
-			});
+			this.socket.on("message", handler);
+
+			const buf = toBuffer({ address, args: [] });
+			const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+			this.socket.send(bytes, 0, bytes.length, this.port, this.ip);
 		});
 	}
 
@@ -78,49 +101,12 @@ export class OscClient {
 			throw new Error("Not connected to mixer");
 		}
 
-		return Promise.all(
-			addresses.map(
-				(address) =>
-					new Promise<unknown[] | null>((resolve) => {
-						const sock = createSocket("udp4");
-
-						const timer = setTimeout(() => {
-							sock.close();
-							resolve(null);
-						}, timeout);
-
-						sock.on("message", (msg) => {
-							clearTimeout(timer);
-							try {
-								const parsed = fromBuffer(msg);
-								if (parsed.oscType === "message") {
-									const args = parsed.args.map((a) =>
-										"value" in a ? a.value : null,
-									);
-									sock.close();
-									resolve(args);
-								} else {
-									sock.close();
-									resolve(null);
-								}
-							} catch {
-								sock.close();
-								resolve(null);
-							}
-						});
-
-						sock.bind(0, () => {
-							const buf = toBuffer({ address, args: [] });
-							const bytes = new Uint8Array(
-								buf.buffer,
-								buf.byteOffset,
-								buf.byteLength,
-							);
-							sock.send(bytes, 0, bytes.length, this.port, this.ip);
-						});
-					}),
-			),
-		);
+		// Sequential queries to avoid flooding the mixer
+		const results: (unknown[] | null)[] = [];
+		for (const address of addresses) {
+			results.push(await this.query(address, timeout));
+		}
+		return results;
 	}
 
 	disconnect(): void {

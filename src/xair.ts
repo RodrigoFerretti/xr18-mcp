@@ -83,6 +83,23 @@ export function faderToDb(val: number): number {
 	return NEG_INF_DB;
 }
 
+// --- Preamp trim <-> float conversion ---
+// The XR18 digital trim is -18 to +18 dB, mapped linearly to 0.0–1.0.
+
+const TRIM_MIN_DB = -18;
+const TRIM_MAX_DB = 18;
+const TRIM_RANGE_DB = TRIM_MAX_DB - TRIM_MIN_DB; // 36
+
+export function trimDbToFloat(db: number): number {
+	const clamped = Math.max(TRIM_MIN_DB, Math.min(TRIM_MAX_DB, db));
+	return (clamped - TRIM_MIN_DB) / TRIM_RANGE_DB;
+}
+
+export function floatToTrimDb(val: number): number {
+	const clamped = Math.max(0, Math.min(1, val));
+	return clamped * TRIM_RANGE_DB + TRIM_MIN_DB;
+}
+
 // --- EQ parameter <-> float conversion ---
 // The XR18 uses normalized 0.0-1.0 floats for all EQ parameters.
 
@@ -156,6 +173,34 @@ export function chEqBand(ch: number, band: number, param: "f" | "g" | "q"): stri
 
 export function chEqOn(ch: number): string {
 	return `${chPrefix(ch)}/eq/on`;
+}
+
+export function chPreampTrim(ch: number): string {
+	return `${chPrefix(ch)}/preamp/rtntrim`;
+}
+
+// Headamp gain (analog preamp): /headamp/01/gain through /headamp/16/gain
+// Range: -12 to +60 dB, linear mapping to 0.0–1.0
+
+const HEADAMP_MIN_DB = -12;
+const HEADAMP_MAX_DB = 60;
+const HEADAMP_RANGE_DB = HEADAMP_MAX_DB - HEADAMP_MIN_DB; // 72
+
+export function headampGain(ch: number): string {
+	if (ch < 1 || ch > 16) {
+		throw new Error(`Headamp channel must be 1-16, got ${ch}`);
+	}
+	return `/headamp/${pad(ch)}/gain`;
+}
+
+export function headampGainDbToFloat(db: number): number {
+	const clamped = Math.max(HEADAMP_MIN_DB, Math.min(HEADAMP_MAX_DB, db));
+	return (clamped - HEADAMP_MIN_DB) / HEADAMP_RANGE_DB;
+}
+
+export function floatToHeadampGainDb(val: number): number {
+	const clamped = Math.max(0, Math.min(1, val));
+	return clamped * HEADAMP_RANGE_DB + HEADAMP_MIN_DB;
 }
 
 export function chConfigName(ch: number): string {

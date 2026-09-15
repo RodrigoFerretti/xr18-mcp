@@ -24,11 +24,15 @@ export function registerEqMatchTool(server: McpServer, _state: MixerState): void
 			low_cut_hz: z
 				.number()
 				.optional()
-				.describe("Ignore frequencies below this value (Hz). Useful to avoid wasting EQ bands on sub-bass the PA can't reproduce."),
+				.describe(
+					"Ignore frequencies below this value (Hz). Useful to avoid wasting EQ bands on sub-bass the PA can't reproduce.",
+				),
 			high_cut_hz: z
 				.number()
 				.optional()
-				.describe("Ignore frequencies above this value (Hz). Useful to avoid wasting EQ bands on ultra-high frequencies."),
+				.describe(
+					"Ignore frequencies above this value (Hz). Useful to avoid wasting EQ bands on ultra-high frequencies.",
+				),
 		},
 		async ({ reference_bands, recorded_bands, low_cut_hz, high_cut_hz }) => {
 			const result = computeEqMatch(reference_bands, recorded_bands, RTA_FREQUENCIES, {

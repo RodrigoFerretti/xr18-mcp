@@ -137,19 +137,34 @@ export function computeEqMatch(
 	const lowCut = options?.lowCutHz;
 	const highCut = options?.highCutHz;
 
+	// Determine which bins are in the useful frequency range
+	const inRange = new Array<boolean>(n);
+	let rangeCount = 0;
+	for (let i = 0; i < n; i++) {
+		inRange[i] =
+			(lowCut === undefined || frequencies[i] >= lowCut) &&
+			(highCut === undefined || frequencies[i] <= highCut);
+		if (inRange[i]) rangeCount++;
+	}
+
+	// Normalize: remove average level difference so EQ only corrects the shape
+	let refSum = 0;
+	let recSum = 0;
+	for (let i = 0; i < n; i++) {
+		if (inRange[i]) {
+			refSum += referenceDb[i];
+			recSum += recordedDb[i];
+		}
+	}
+	const levelOffset = rangeCount > 0 ? refSum / rangeCount - recSum / rangeCount : 0;
+
 	// Difference curve: positive means recorded needs boost
 	const residual = new Array<number>(n);
 	for (let i = 0; i < n; i++) {
-		residual[i] = referenceDb[i] - recordedDb[i];
-	}
-
-	// Zero out residual outside the useful frequency range
-	if (lowCut !== undefined || highCut !== undefined) {
-		for (let i = 0; i < n; i++) {
-			if ((lowCut !== undefined && frequencies[i] < lowCut) ||
-				(highCut !== undefined && frequencies[i] > highCut)) {
-				residual[i] = 0;
-			}
+		if (!inRange[i]) {
+			residual[i] = 0;
+		} else {
+			residual[i] = referenceDb[i] - (recordedDb[i] + levelOffset);
 		}
 	}
 

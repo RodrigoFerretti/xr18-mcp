@@ -136,7 +136,7 @@ describe("executeBatch", () => {
 		// Q: log10(10/1.5) / log10(10/0.3) ≈ 0.5410
 		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/2/q", {
 			type: "float",
-			value: expect.closeTo(0.5410, 3),
+			value: expect.closeTo(0.541, 3),
 		});
 	});
 
@@ -168,6 +168,35 @@ describe("executeBatch", () => {
 		expect(client.send).toHaveBeenCalledWith("/rtn/aux/mix/fader", expect.anything());
 		expect(client.send).toHaveBeenCalledWith("/rtn/aux/mix/on", expect.anything());
 		expect(client.send).toHaveBeenCalledWith("/rtn/aux/mix/02/level", expect.anything());
+	});
+
+	it("handles set_channel_preamp_trim", () => {
+		const commands: Command[] = [{ action: "set_channel_preamp_trim", channel: 3, trim_db: 6 }];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message).toContain("Ch 3");
+		expect(results[0].message).toContain("6 dB");
+		// trim 6 dB: (6 - (-18)) / 36 = 24/36 = 0.6667
+		expect(client.send).toHaveBeenCalledWith("/ch/03/preamp/rtntrim", {
+			type: "float",
+			value: expect.closeTo(0.6667, 3),
+		});
+	});
+
+	it("handles set_channel_preamp_trim with name resolution", () => {
+		registry.assignName("channel", 5, "Kick");
+		const commands: Command[] = [
+			{ action: "set_channel_preamp_trim", channel: "Kick", trim_db: -6 },
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message).toContain("Ch 5");
+		expect(client.send).toHaveBeenCalledWith("/ch/05/preamp/rtntrim", {
+			type: "float",
+			value: expect.closeTo(0.3333, 3),
+		});
 	});
 
 	it("handles raw OSC with args", () => {

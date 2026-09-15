@@ -9,6 +9,7 @@ import {
 	chEqOn,
 	chFader,
 	chMute,
+	chPreampTrim,
 	chSendLevel,
 	dbToFader,
 	eqFreqToFloat,
@@ -18,14 +19,19 @@ import {
 	floatToEqFreq,
 	floatToEqGain,
 	floatToEqQ,
+	floatToHeadampGainDb,
+	floatToTrimDb,
 	fxReturnFader,
 	fxReturnMute,
 	fxReturnSendLevel,
 	fxSendFader,
 	fxSendMute,
+	headampGain,
+	headampGainDbToFloat,
 	mainFader,
 	mainMute,
 	NEG_INF_DB,
+	trimDbToFloat,
 	validateBus,
 	validateChannel,
 	validateEqBand,
@@ -127,6 +133,70 @@ describe("OSC address builders", () => {
 		expect(chSendLevel(AUX_CHANNEL, 5)).toBe("/rtn/aux/mix/05/level");
 		expect(chEqOn(AUX_CHANNEL)).toBe("/rtn/aux/eq/on");
 		expect(chConfigName(AUX_CHANNEL)).toBe("/rtn/aux/config/name");
+	});
+
+	it("USB-return trim addresses", () => {
+		expect(chPreampTrim(1)).toBe("/ch/01/preamp/rtntrim");
+		expect(chPreampTrim(16)).toBe("/ch/16/preamp/rtntrim");
+		expect(chPreampTrim(AUX_CHANNEL)).toBe("/rtn/aux/preamp/rtntrim");
+	});
+
+	it("headamp gain addresses use zero-padded numbers and reject the aux channel", () => {
+		expect(headampGain(1)).toBe("/headamp/01/gain");
+		expect(headampGain(16)).toBe("/headamp/16/gain");
+		expect(() => headampGain(0)).toThrow("Headamp channel must be 1-16");
+		expect(() => headampGain(AUX_CHANNEL)).toThrow("Headamp channel must be 1-16");
+	});
+});
+
+describe("headamp gain conversion", () => {
+	it("maps -12..+60 dB linearly onto 0..1", () => {
+		expect(headampGainDbToFloat(-12)).toBeCloseTo(0, 5);
+		expect(headampGainDbToFloat(60)).toBeCloseTo(1, 5);
+		expect(headampGainDbToFloat(0)).toBeCloseTo(1 / 6, 5);
+		expect(headampGainDbToFloat(24)).toBeCloseTo(0.5, 5);
+	});
+
+	it("clamps out-of-range values", () => {
+		expect(headampGainDbToFloat(-30)).toBeCloseTo(0, 5);
+		expect(headampGainDbToFloat(80)).toBeCloseTo(1, 5);
+		expect(floatToHeadampGainDb(-0.5)).toBeCloseTo(-12, 5);
+		expect(floatToHeadampGainDb(1.5)).toBeCloseTo(60, 5);
+	});
+
+	it("round-trips through floatToHeadampGainDb", () => {
+		for (const db of [-12, -6, 0, 12, 24, 36, 48, 60]) {
+			expect(floatToHeadampGainDb(headampGainDbToFloat(db))).toBeCloseTo(db, 5);
+		}
+	});
+});
+
+describe("trim dB conversion", () => {
+	it("converts boundary values", () => {
+		expect(trimDbToFloat(-18)).toBeCloseTo(0.0, 5);
+		expect(trimDbToFloat(18)).toBeCloseTo(1.0, 5);
+	});
+
+	it("converts 0 dB to 0.5", () => {
+		expect(trimDbToFloat(0)).toBeCloseTo(0.5, 5);
+	});
+
+	it("clamps out-of-range values", () => {
+		expect(trimDbToFloat(-30)).toBeCloseTo(0.0, 5);
+		expect(trimDbToFloat(30)).toBeCloseTo(1.0, 5);
+	});
+
+	it("round-trips through floatToTrimDb", () => {
+		for (const db of [-18, -12, -6, 0, 6, 12, 18]) {
+			expect(floatToTrimDb(trimDbToFloat(db))).toBeCloseTo(db, 5);
+		}
+	});
+
+	it("floatToTrimDb clamps float range", () => {
+		expect(floatToTrimDb(0)).toBeCloseTo(-18, 5);
+		expect(floatToTrimDb(1)).toBeCloseTo(18, 5);
+		expect(floatToTrimDb(-0.5)).toBeCloseTo(-18, 5);
+		expect(floatToTrimDb(1.5)).toBeCloseTo(18, 5);
 	});
 });
 

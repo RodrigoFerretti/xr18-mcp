@@ -65,6 +65,50 @@ describe("OscClient", () => {
 		client.disconnect();
 	});
 
+	it("can query after a send on the same client", async () => {
+		// send() implicitly binds a dgram socket; a later query must not try
+		// to bind again (ERR_SOCKET_ALREADY_BOUND) and must still see the reply.
+		echoServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType === "message" && parsed.args.length === 0) {
+				const reply = toBuffer({
+					address: parsed.address,
+					args: [{ type: "float", value: 0.25 }],
+				});
+				const bytes = new Uint8Array(reply.buffer, reply.byteOffset, reply.byteLength);
+				echoServer.send(bytes, rinfo.port, rinfo.address);
+			}
+		});
+
+		const client = new OscClient("127.0.0.1", serverPort);
+		client.send("/ch/01/mix/fader", { type: "float", value: 0.75 });
+		const result = await client.query("/ch/01/mix/fader");
+
+		expect(result).not.toBeNull();
+		expect(result?.[0]).toBeCloseTo(0.25, 4);
+		client.disconnect();
+	});
+
+	it("ignores replies for other addresses while a query is pending", async () => {
+		echoServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType !== "message") return;
+			const sendReply = (address: string, value: number) => {
+				const reply = toBuffer({ address, args: [{ type: "float", value }] });
+				const bytes = new Uint8Array(reply.buffer, reply.byteOffset, reply.byteLength);
+				echoServer.send(bytes, rinfo.port, rinfo.address);
+			};
+			// Unrelated traffic first (e.g. a stray meter or another param), then the real answer
+			sendReply("/ch/02/mix/fader", 0.9);
+			sendReply(parsed.address, 0.1);
+		});
+
+		const client = new OscClient("127.0.0.1", serverPort);
+		const result = await client.query("/ch/01/mix/fader");
+		expect(result?.[0]).toBeCloseTo(0.1, 4);
+		client.disconnect();
+	});
+
 	it("returns null on query timeout", async () => {
 		// No echo server response
 		const client = new OscClient("127.0.0.1", serverPort);

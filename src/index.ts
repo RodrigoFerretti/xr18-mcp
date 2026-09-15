@@ -5,6 +5,7 @@ import { NameRegistry } from "./name-registry.js";
 import { registerBatchTool } from "./tools/batch.js";
 import { type MixerState, registerConnectTool } from "./tools/connect.js";
 import { registerEqMatchTool } from "./tools/eq-match.js";
+import { registerGainStageTool } from "./tools/gain-stage.js";
 import { registerQueryTools } from "./tools/query.js";
 import { registerRtaTool } from "./tools/rta.js";
 
@@ -23,6 +24,7 @@ registerBatchTool(server, state);
 registerQueryTools(server, state);
 registerRtaTool(server, state);
 registerEqMatchTool(server, state);
+registerGainStageTool(server, state);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

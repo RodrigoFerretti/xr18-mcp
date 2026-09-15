@@ -41,11 +41,19 @@ const GetMainFader = z
 	})
 	.describe("Query the current main LR fader level.");
 
+const GetChannelPreampTrim = z
+	.object({
+		query: z.literal("get_channel_preamp_trim"),
+		channel: ChannelRef,
+	})
+	.describe("Query a channel's USB-return trim (/preamp/rtntrim), not its analog preamp gain.");
+
 export const Query = z.discriminatedUnion("query", [
 	GetChannelFader,
 	GetChannelSendToBus,
 	GetBusFader,
 	GetMainFader,
+	GetChannelPreampTrim,
 ]);
 
 export type Query = z.infer<typeof Query>;
@@ -67,6 +75,7 @@ export type BatchQueryInput = z.infer<typeof BatchQueryInput>;
 interface ResolvedQuery {
 	address: string;
 	label: string;
+	kind: "fader" | "trim";
 }
 
 function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
@@ -74,7 +83,7 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 		case "get_channel_fader": {
 			const ch = registry.resolve("channel", q.channel);
 			xair.validateChannel(ch);
-			return { address: xair.chFader(ch), label: `Ch ${ch} fader` };
+			return { address: xair.chFader(ch), label: `Ch ${ch} fader`, kind: "fader" };
 		}
 		case "get_channel_send_to_bus": {
 			const ch = registry.resolve("channel", q.channel);
@@ -84,15 +93,21 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 			return {
 				address: xair.chSendLevel(ch, bus),
 				label: `Ch ${ch} -> Bus ${bus} send`,
+				kind: "fader",
 			};
 		}
 		case "get_bus_fader": {
 			const bus = registry.resolve("bus", q.bus);
 			xair.validateBus(bus);
-			return { address: xair.busFader(bus), label: `Bus ${bus} fader` };
+			return { address: xair.busFader(bus), label: `Bus ${bus} fader`, kind: "fader" };
 		}
 		case "get_main_fader": {
-			return { address: xair.mainFader(), label: "Main fader" };
+			return { address: xair.mainFader(), label: "Main fader", kind: "fader" };
+		}
+		case "get_channel_preamp_trim": {
+			const ch = registry.resolve("channel", q.channel);
+			xair.validateChannel(ch);
+			return { address: xair.chPreampTrim(ch), label: `Ch ${ch} preamp trim`, kind: "trim" };
 		}
 	}
 }
@@ -147,12 +162,13 @@ export async function executeBatchQuery(
 					message: `${r.label}: no response (timeout)`,
 				});
 			} else {
-				const faderVal = typeof resp[0] === "number" ? resp[0] : 0;
-				const db = xair.faderToDb(faderVal);
+				const floatVal = typeof resp[0] === "number" ? resp[0] : 0;
+				const db =
+					r.kind === "trim" ? xair.floatToTrimDb(floatVal) : xair.faderToDb(floatVal);
 				results.push({
 					index: i,
 					status: "ok",
-					message: `${r.label}: ${db.toFixed(1)} dB (float ${faderVal.toFixed(4)})`,
+					message: `${r.label}: ${db.toFixed(1)} dB (float ${floatVal.toFixed(4)})`,
 				});
 			}
 		}

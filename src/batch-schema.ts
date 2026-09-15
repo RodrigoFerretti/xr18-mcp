@@ -51,6 +51,16 @@ const Muted = z.boolean().describe("true=mute, false=unmute.");
 
 const Enabled = z.boolean().describe("true=enable, false=disable.");
 
+const TrimDb = z
+	.number()
+	.min(-18)
+	.max(18)
+	.describe(
+		"USB-return trim in dB. Range: -18 to +18. 0=unity. " +
+			"Only affects the signal when the channel's input is switched to its USB return (rtnsw); " +
+			"it does NOT change analog mic/line gain — use gain_stage or /headamp/XX/gain for that.",
+	);
+
 // --- Command schemas ---
 
 const SetChannelFader = z
@@ -168,6 +178,14 @@ const SetFxReturnSendLevel = z
 	})
 	.describe("Set how much of an FX return goes to a bus/monitor mix.");
 
+const SetChannelPreampTrim = z
+	.object({
+		action: z.literal("set_channel_preamp_trim"),
+		channel: ChannelRef,
+		trim_db: TrimDb,
+	})
+	.describe("Set a channel's USB-return trim (/preamp/rtntrim). Not the analog preamp gain.");
+
 const SendRawOsc = z
 	.object({
 		action: z.literal("send_raw_osc"),
@@ -197,6 +215,7 @@ export const Command = z
 		SetFxReturnFader,
 		SetFxReturnMute,
 		SetFxReturnSendLevel,
+		SetChannelPreampTrim,
 		SendRawOsc,
 	])
 	.describe("A single mixer command. Use the 'action' field to choose the command type.");

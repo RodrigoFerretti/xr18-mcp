@@ -121,11 +121,19 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 			});
 			return `FX return ${cmd.fx_return} -> Bus ${bus} send -> ${cmd.level_db} dB`;
 		}
+		case "set_channel_preamp_trim": {
+			const ch = resolveChannel(registry, cmd.channel);
+			const trimFloat = xair.trimDbToFloat(cmd.trim_db);
+			client.send(xair.chPreampTrim(ch), { type: "float", value: trimFloat });
+			return `Ch ${ch} preamp trim -> ${cmd.trim_db} dB`;
+		}
 		case "send_raw_osc": {
 			if (cmd.args && cmd.args.length > 0) {
 				const oscArgs = cmd.args.map((a) =>
 					typeof a === "number"
-						? { type: "float" as const, value: a }
+						? Number.isInteger(a)
+							? { type: "integer" as const, value: a }
+							: { type: "float" as const, value: a }
 						: { type: "string" as const, value: a },
 				);
 				client.send(cmd.address, ...oscArgs);
