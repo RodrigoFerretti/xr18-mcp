@@ -3,6 +3,7 @@ import { executeBatch } from "../src/batch-handler.js";
 import type { Command } from "../src/batch-schema.js";
 import { NameRegistry } from "../src/name-registry.js";
 import type { OscClient } from "../src/osc-client.js";
+import * as xair from "../src/xair.js";
 
 function mockClient(): OscClient {
 	return {
@@ -197,6 +198,207 @@ describe("executeBatch", () => {
 			type: "float",
 			value: expect.closeTo(0.3333, 3),
 		});
+	});
+
+	it("handles set_channel_preamp with partial updates and ordering", () => {
+		const commands: Command[] = [
+			{
+				action: "set_channel_preamp",
+				channel: 2,
+				phantom: true,
+				polarity_inverted: true,
+				low_cut_enabled: true,
+				low_cut_hz: Math.sqrt(20 * 400),
+				usb_return: false,
+			},
+		];
+
+		const results = executeBatch(commands, client, registry);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message).toBe(
+			"Ch 2 preamp: phantom on, polarity inverted, low cut 89.44271909999159 Hz, low cut on, input analog",
+		);
+		expect(client.send).toHaveBeenCalledWith("/headamp/02/phantom", {
+			type: "integer",
+			value: 1,
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/02/preamp/invert", {
+			type: "integer",
+			value: 1,
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/02/preamp/hpf", {
+			type: "float",
+			value: expect.closeTo(0.5, 4),
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/02/preamp/hpon", {
+			type: "integer",
+			value: 1,
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/02/preamp/rtnsw", {
+			type: "integer",
+			value: 0,
+		});
+
+		// hpf frequency is sent before hpon so the filter never switches on at a stale frequency
+		const calls = (client.send as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+		expect(calls.indexOf("/ch/02/preamp/hpf")).toBeLessThan(
+			calls.indexOf("/ch/02/preamp/hpon"),
+		);
+	});
+
+	it("refuses phantom on the aux return but allows its other preamp fields", () => {
+		const results = executeBatch(
+			[
+				{ action: "set_channel_preamp", channel: 17, phantom: true },
+				{ action: "set_channel_preamp", channel: 17, usb_return: true },
+				{ action: "set_channel_preamp", channel: 1 },
+			],
+			client,
+			registry,
+		);
+		expect(results[0].status).toBe("error");
+		expect(results[0].message).toContain("Phantom power");
+		expect(results[1].status).toBe("ok");
+		expect(client.send).toHaveBeenCalledWith("/rtn/aux/preamp/rtnsw", {
+			type: "integer",
+			value: 1,
+		});
+		expect(results[2].status).toBe("error");
+		expect(results[2].message).toContain("no preamp parameters");
+	});
+
+	it("handles set_headamp_gain", () => {
+		const results = executeBatch(
+			[
+				{ action: "set_headamp_gain", channel: 3, gain_db: 24 },
+				{ action: "set_headamp_gain", channel: 17, gain_db: 0 },
+			],
+			client,
+			registry,
+		);
+		expect(results[0].message).toBe("Ch 3 headamp gain -> 24 dB");
+		expect(client.send).toHaveBeenCalledWith("/headamp/03/gain", {
+			type: "float",
+			value: expect.closeTo(0.5, 4),
+		});
+		expect(results[1].status).toBe("error");
+		expect(results[1].message).toContain("Headamp channel must be 1-16");
+	});
+
+	it("sets an EQ band type on its own and errors on an empty EQ command", () => {
+		const results = executeBatch(
+			[
+				{
+					action: "set_channel_eq",
+					channel: 1,
+					band: 1,
+					type: "low_cut",
+					frequency_hz: 80,
+				},
+				{ action: "set_channel_eq", channel: 1, band: 4, type: "high_shelf" },
+				{ action: "set_channel_eq", channel: 1, band: 2 },
+			],
+			client,
+			registry,
+		);
+		expect(results[0].message).toBe("Ch 1 EQ band 1: low_cut 80Hz");
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/1/type", { type: "integer", value: 0 });
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/1/f", {
+			type: "float",
+			value: expect.closeTo(xair.eqFreqToFloat(80), 5),
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/01/eq/4/type", { type: "integer", value: 4 });
+		expect(results[2].status).toBe("error");
+		expect(results[2].message).toContain("no EQ parameters");
+		expect(client.send).toHaveBeenCalledTimes(3);
+	});
+
+	it("handles pan, LR assign, FX send level and send tap", () => {
+		const results = executeBatch(
+			[
+				{ action: "set_channel_pan", channel: 1, pan: -50 },
+				{ action: "set_channel_pan", channel: 1, pan: 0 },
+				{ action: "set_channel_lr_assign", channel: 2, enabled: false },
+				{ action: "set_channel_fx_send_level", channel: 3, fx_slot: 2, level_db: -20 },
+				{ action: "set_channel_send_tap", channel: 4, bus: 1, tap: "pre_fader" },
+			],
+			client,
+			registry,
+		);
+		expect(results.map((r) => r.message)).toEqual([
+			"Ch 1 pan -> L50",
+			"Ch 1 pan -> center",
+			"Ch 2 removed from main LR",
+			"Ch 3 -> FX 2 send -> -20 dB",
+			"Ch 4 -> Bus 1 send tap -> pre_fader",
+		]);
+		expect(client.send).toHaveBeenCalledWith("/ch/01/mix/pan", {
+			type: "float",
+			value: expect.closeTo(0.25, 4),
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/02/mix/lr", { type: "integer", value: 0 });
+		expect(client.send).toHaveBeenCalledWith("/ch/03/mix/08/level", {
+			type: "float",
+			value: expect.closeTo(xair.dbToFader(-20), 5),
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/04/mix/01/tap", {
+			type: "integer",
+			value: 3,
+		});
+	});
+
+	it("names and colors a channel, updating the registry first", () => {
+		registry.assignName("channel", 9, "Vox");
+		const results = executeBatch(
+			[
+				{
+					action: "set_channel_config",
+					channel: 1,
+					name: "Kick",
+					color: "red",
+					color_inverted: true,
+				},
+				{ action: "set_channel_config", channel: 2, name: "Vox" },
+				{ action: "set_channel_config", channel: "Kick", color: "blue" },
+				{ action: "set_channel_config", channel: 3 },
+			],
+			client,
+			registry,
+		);
+		expect(results[0].message).toBe('Ch 1 config: name "Kick", color red (inverted)');
+		expect(client.send).toHaveBeenCalledWith("/ch/01/config/name", {
+			type: "string",
+			value: "Kick",
+		});
+		expect(client.send).toHaveBeenCalledWith("/ch/01/config/color", {
+			type: "integer",
+			value: 9,
+		});
+		// duplicate name is refused and nothing is sent for it
+		expect(results[1].status).toBe("error");
+		expect(results[1].message).toContain("already assigned");
+		expect(client.send).not.toHaveBeenCalledWith("/ch/02/config/name", expect.anything());
+		// the new name resolves immediately
+		expect(results[2].message).toBe("Ch 1 config: color blue");
+		expect(results[3].status).toBe("error");
+	});
+
+	it("names and colors a bus", () => {
+		const results = executeBatch(
+			[{ action: "set_bus_config", bus: 2, name: "Wedges", color: "green" }],
+			client,
+			registry,
+		);
+		expect(results[0].message).toBe('Bus 2 config: name "Wedges", color green');
+		expect(client.send).toHaveBeenCalledWith("/bus/2/config/name", {
+			type: "string",
+			value: "Wedges",
+		});
+		expect(client.send).toHaveBeenCalledWith("/bus/2/config/color", {
+			type: "integer",
+			value: 2,
+		});
+		expect(registry.resolve("bus", "wedges")).toBe(2);
 	});
 
 	it("handles set_channel_gate", () => {

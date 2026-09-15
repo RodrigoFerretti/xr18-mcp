@@ -203,7 +203,12 @@ export function chSendLevel(ch: number, bus: number): string {
 	return `${chPrefix(ch)}/mix/${pad(bus)}/level`;
 }
 
-export function chEqBand(ch: number, band: number, param: "f" | "g" | "q"): string {
+/** EQ band shapes. Index = OSC value. */
+export const EQ_TYPES = ["LCut", "LShv", "PEQ", "VEQ", "HShv", "HCut"] as const;
+
+export type EqBandParam = "f" | "g" | "q" | "type";
+
+export function chEqBand(ch: number, band: number, param: EqBandParam): string {
 	return `${chPrefix(ch)}/eq/${band}/${param}`;
 }
 
@@ -268,6 +273,23 @@ export function chPreampTrim(ch: number): string {
 	return `${chPrefix(ch)}/preamp/rtntrim`;
 }
 
+export type PreampParam = "invert" | "hpon" | "hpf" | "rtnsw" | "rtntrim";
+
+export function chPreamp(ch: number, param: PreampParam): string {
+	return `${chPrefix(ch)}/preamp/${param}`;
+}
+
+// Low cut (high-pass) filter: 20..400 Hz, logarithmic
+export const HPF_HZ = { min: 20, max: 400 } as const;
+
+export function hpfToFloat(hz: number): number {
+	return logToFloat(HPF_HZ.min, HPF_HZ.max, hz);
+}
+
+export function floatToHpf(val: number): number {
+	return floatToLog(HPF_HZ.min, HPF_HZ.max, val);
+}
+
 // Headamp gain (analog preamp): /headamp/01/gain through /headamp/16/gain
 // Range: -12 to +60 dB, linear mapping to 0.0–1.0
 
@@ -280,6 +302,13 @@ export function headampGain(ch: number): string {
 		throw new Error(`Headamp channel must be 1-16, got ${ch}`);
 	}
 	return `/headamp/${pad(ch)}/gain`;
+}
+
+export function headampPhantom(ch: number): string {
+	if (ch < 1 || ch > 16) {
+		throw new Error(`Headamp channel must be 1-16, got ${ch}`);
+	}
+	return `/headamp/${pad(ch)}/phantom`;
 }
 
 export function headampGainDbToFloat(db: number): number {
@@ -296,6 +325,71 @@ export function chConfigName(ch: number): string {
 	return `${chPrefix(ch)}/config/name`;
 }
 
+export function chConfigColor(ch: number): string {
+	return `${chPrefix(ch)}/config/color`;
+}
+
+/** Strip colors as the mixer names them; indices 8-15 are the inverted variants. */
+export const COLOR_NAMES = [
+	"off",
+	"red",
+	"green",
+	"yellow",
+	"blue",
+	"magenta",
+	"cyan",
+	"white",
+] as const;
+export type ColorName = (typeof COLOR_NAMES)[number];
+
+export function colorToIndex(name: ColorName, inverted = false): number {
+	const idx = COLOR_NAMES.indexOf(name);
+	if (idx < 0) throw new Error(`Unknown color: ${name}`);
+	return inverted ? idx + COLOR_NAMES.length : idx;
+}
+
+export function colorLabel(index: number): string {
+	if (!Number.isInteger(index) || index < 0 || index >= COLOR_NAMES.length * 2) {
+		return `?(${index})`;
+	}
+	const base = COLOR_NAMES[index % COLOR_NAMES.length];
+	return index >= COLOR_NAMES.length ? `${base} (inverted)` : base;
+}
+
+// Pan: -100 (left) .. +100 (right), linear, 0.5 = center
+export const PAN = { min: -100, max: 100 } as const;
+
+export function panToFloat(pan: number): number {
+	return linToFloat(PAN.min, PAN.max, pan);
+}
+
+export function floatToPan(val: number): number {
+	return floatToLin(PAN.min, PAN.max, val);
+}
+
+export function chPan(ch: number): string {
+	return `${chPrefix(ch)}/mix/pan`;
+}
+
+/** Assign the channel to the main LR mix (0/1). */
+export function chLrAssign(ch: number): string {
+	return `${chPrefix(ch)}/mix/lr`;
+}
+
+/** FX sends are send slots 07..10 of the same mix block as the bus sends. */
+export function chFxSendLevel(ch: number, slot: number): string {
+	validateFxSlot(slot);
+	return `${chPrefix(ch)}/mix/${pad(NUM_BUSES + slot)}/level`;
+}
+
+/** Send tap points. Index = OSC value. */
+export const SEND_TAPS = ["IN", "PREEQ", "POSTEQ", "PRE", "POST", "GRP"] as const;
+
+export function chSendTap(ch: number, bus: number): string {
+	validateBus(bus);
+	return `${chPrefix(ch)}/mix/${pad(bus)}/tap`;
+}
+
 // Bus (bus/1 - bus/6) - NOT zero-padded
 export function busFader(bus: number): string {
 	return `/bus/${bus}/mix/fader`;
@@ -307,6 +401,10 @@ export function busMute(bus: number): string {
 
 export function busConfigName(bus: number): string {
 	return `/bus/${bus}/config/name`;
+}
+
+export function busConfigColor(bus: number): string {
+	return `/bus/${bus}/config/color`;
 }
 
 // Main LR

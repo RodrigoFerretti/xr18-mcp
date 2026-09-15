@@ -24,13 +24,13 @@ Legend:
 
 | Block | Board has | MCP today | Gap |
 |---|---|---|---|
-| Fader / mute / LR assign | ch, bus, LR, fxsend, rtn, dca | ch, bus, LR, fxsend, rtn fader+mute | pan, LR assign, DCA fader/mute |
-| Sends | 6 bus + 4 FX sends per channel, each with tap point | bus level only | FX send level (07..10), tap, send pan, grpon |
-| Preamp | headamp gain, phantom, polarity, HPF, USB return switch/trim | headamp gain (inside gain_stage), USB trim | phantom, invert, HPF on/freq, rtnsw as first-class commands |
+| Fader / mute / LR assign | ch, bus, LR, fxsend, rtn, dca | ch, bus, LR, fxsend, rtn fader+mute; ch pan + LR assign | DCA fader/mute |
+| Sends | 6 bus + 4 FX sends per channel, each with tap point | bus level, FX level, bus tap | send pan, grpon |
+| Preamp | headamp gain, phantom, polarity, HPF, USB return switch/trim | all (`set_channel_preamp`, `set_headamp_gain`, `set_channel_preamp_trim`) | hpslope (unverified) |
 | Gate | full | `set_channel_gate` / `get_channel_gate` | key source bus offset unverified |
 | Compressor | full, ch + bus + LR | `set_channel_compressor`, `set_bus_compressor`, `set_main_compressor` + `get_*` | key source bus offset unverified |
-| EQ | 4-band ch/rtn/aux (with band type), 6-band bus/LR + 31-band GEQ | 4-band f/g/q, on/off | band **type** (shelf / cut), bus/LR 6-band, GEQ |
-| Config | name, color, input source, USB return source | names read at connect | set name/color, read color |
+| EQ | 4-band ch/rtn/aux (with band type), 6-band bus/LR + 31-band GEQ | 4-band type/f/g/q, on/off, read-back | bus/LR 6-band, GEQ |
+| Config | name, color, input source, USB return source | name + color for channels and buses | insrc/rtnsrc |
 | Groups | 4 DCA, 4 mute groups | none | everything |
 | FX engines | 4 slots, type + up to 64 params | none | everything |
 | Snapshots | 64 slots, load/save/name | none | everything (needed for undo) |

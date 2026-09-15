@@ -128,4 +128,46 @@ describe("executeBatchQuery", () => {
 		expect(results[0].message.startsWith("Bus 3 comp: on,")).toBe(true);
 		expect(results[1].message.startsWith("Main comp: off,")).toBe(true);
 	});
+
+	it("reads an EQ block as a compact line", async () => {
+		const client = mockClient({
+			"/ch/01/eq/on": [1],
+			"/ch/01/eq/1/type": [1],
+			"/ch/01/eq/1/f": [xair.eqFreqToFloat(100)],
+			"/ch/01/eq/1/g": [xair.eqGainToFloat(2)],
+			"/ch/01/eq/1/q": [xair.eqQToFloat(0.7)],
+		});
+		const results = await executeBatchQuery(
+			[{ query: "get_channel_eq", channel: 1 }],
+			client,
+			registry,
+		);
+		expect(queryMultiCalls(client)[0]).toHaveLength(17);
+		expect(
+			results[0].message.startsWith("Ch 1 EQ: on; band 1 low_shelf 100 Hz 2.0 dB Q 0.70;"),
+		).toBe(true);
+	});
+
+	it("reads a whole strip as JSON", async () => {
+		const client = mockClient({
+			"/ch/02/config/name": ["Snare"],
+			"/headamp/02/gain": [xair.headampGainDbToFloat(20)],
+			"/ch/02/mix/fader": [xair.dbToFader(-3)],
+			"/ch/02/mix/03/tap": [3],
+		});
+		const results = await executeBatchQuery(
+			[{ query: "get_channel_strip", channel: "Snare" }],
+			client,
+			registry,
+		);
+		expect(results[0].status).toBe("ok");
+		expect(results[0].message.startsWith("Ch 2 strip: {")).toBe(true);
+		const json = JSON.parse(results[0].message.slice("Ch 2 strip: ".length));
+		expect(json.channel).toBe(2);
+		expect(json.name).toBe("Snare");
+		expect(json.headamp.gain_db).toBe(20);
+		expect(json.mix.fader_db).toBe(-3);
+		expect(json.sends.bus["3"].tap).toBe("pre_fader");
+		expect(json.gate.threshold_db).toBeNull();
+	});
 });

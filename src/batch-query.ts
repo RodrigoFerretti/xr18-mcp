@@ -8,6 +8,7 @@ import {
 } from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
+import { eqReadPlan, formatEq, formatStrip, type ReadPlan, stripReadPlan } from "./strip.js";
 import * as xair from "./xair.js";
 
 // --- Query schemas ---
@@ -82,6 +83,23 @@ const GetMainCompressor = z
 	})
 	.describe("Read the main LR compressor settings.");
 
+const GetChannelEq = z
+	.object({
+		query: z.literal("get_channel_eq"),
+		channel: ChannelRef,
+	})
+	.describe("Read a channel's EQ: on/off and type, frequency, gain, Q of all 4 bands.");
+
+const GetChannelStrip = z
+	.object({
+		query: z.literal("get_channel_strip"),
+		channel: ChannelRef,
+	})
+	.describe(
+		"Read a channel's whole strip as JSON: name, color, headamp, preamp, gate, compressor, EQ, fader/mute/pan/LR, bus and FX sends. " +
+			"Slower than the other queries (about 70 round-trips); use it to understand a channel before changing it.",
+	);
+
 export const Query = z.discriminatedUnion("query", [
 	GetChannelFader,
 	GetChannelSendToBus,
@@ -92,6 +110,8 @@ export const Query = z.discriminatedUnion("query", [
 	GetChannelCompressor,
 	GetBusCompressor,
 	GetMainCompressor,
+	GetChannelEq,
+	GetChannelStrip,
 ]);
 
 export type Query = z.infer<typeof Query>;
@@ -128,24 +148,36 @@ function levelQuery(label: string, address: string, kind: "fader" | "trim"): Res
 	};
 }
 
+function planQuery(
+	label: string,
+	plan: ReadPlan,
+	formatBlock: (values: BlockValues) => string,
+): ResolvedQuery {
+	return {
+		label,
+		addresses: plan.map((entry) => entry.address),
+		format: (responses) => {
+			const values: BlockValues = {};
+			plan.forEach((entry, i) => {
+				const resp = responses[i];
+				values[entry.key] = resp === null || resp === undefined ? null : resp[0];
+			});
+			return formatBlock(values);
+		},
+	};
+}
+
 function blockQuery(
 	label: string,
 	params: readonly string[],
 	addressOf: (param: string) => string,
 	formatBlock: (values: BlockValues) => string,
 ): ResolvedQuery {
-	return {
+	return planQuery(
 		label,
-		addresses: params.map(addressOf),
-		format: (responses) => {
-			const values: BlockValues = {};
-			params.forEach((param, i) => {
-				const resp = responses[i];
-				values[param] = resp === null || resp === undefined ? null : resp[0];
-			});
-			return formatBlock(values);
-		},
-	};
+		params.map((param) => ({ key: param, address: addressOf(param) })),
+		formatBlock,
+	);
 }
 
 function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
@@ -211,6 +243,18 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 				DYN_READ_PARAMS,
 				(param) => xair.lrDyn(param as xair.DynParam),
 				formatCompressor,
+			);
+		}
+		case "get_channel_eq": {
+			const ch = registry.resolve("channel", q.channel);
+			xair.validateChannel(ch);
+			return planQuery(`Ch ${ch} EQ`, eqReadPlan(ch), formatEq);
+		}
+		case "get_channel_strip": {
+			const ch = registry.resolve("channel", q.channel);
+			xair.validateChannel(ch);
+			return planQuery(`Ch ${ch} strip`, stripReadPlan(ch), (values) =>
+				formatStrip(ch, values),
 			);
 		}
 	}

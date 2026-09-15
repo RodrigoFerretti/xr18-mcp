@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { CompressorFields, GateFields } from "./dynamics.js";
+import { EQ_TYPE_NAMES, SEND_TAP_NAMES } from "./strip.js";
+import { COLOR_NAMES, HPF_HZ, PAN } from "./xair.js";
 
 // --- Shared field schemas ---
 
@@ -89,16 +91,26 @@ const SetChannelSendLevel = z
 	})
 	.describe("Set how much of a channel goes to a bus/monitor mix.");
 
+const EqType = z
+	.enum(EQ_TYPE_NAMES)
+	.describe(
+		"Band shape: low_cut, low_shelf, peq (parametric bell), veq (vintage bell), high_shelf, high_cut. " +
+			"Gain is ignored for cuts; Q sets the slope for shelves and cuts.",
+	);
+
 const SetChannelEq = z
 	.object({
 		action: z.literal("set_channel_eq"),
 		channel: ChannelRef,
 		band: EqBand,
-		frequency_hz: EqFrequency,
-		gain_db: EqGain,
-		q: EqQ,
+		type: EqType.optional(),
+		frequency_hz: EqFrequency.optional(),
+		gain_db: EqGain.optional(),
+		q: EqQ.optional(),
 	})
-	.describe("Set EQ parameters for one band on a channel.");
+	.describe(
+		"Set any subset of one EQ band's type, frequency, gain and Q on a channel. Omitted fields are left unchanged.",
+	);
 
 const SetChannelEqOn = z
 	.object({
@@ -228,6 +240,110 @@ const SetMainCompressor = z
 		"Set any subset of the main LR compressor parameters. Omitted fields are left unchanged.",
 	);
 
+const SetChannelPreamp = z
+	.object({
+		action: z.literal("set_channel_preamp"),
+		channel: ChannelRef,
+		phantom: z.boolean().optional().describe("48V phantom power (input channels 1-16 only)."),
+		polarity_inverted: z.boolean().optional().describe("Invert polarity (phase flip)."),
+		low_cut_enabled: z.boolean().optional().describe("Enable the low-cut (high-pass) filter."),
+		low_cut_hz: z
+			.number()
+			.min(HPF_HZ.min)
+			.max(HPF_HZ.max)
+			.optional()
+			.describe("Low-cut frequency in Hz (20-400)."),
+		usb_return: z
+			.boolean()
+			.optional()
+			.describe(
+				"true = take this channel's input from its USB return (computer playback) instead of the analog input.",
+			),
+	})
+	.describe(
+		"Set any subset of a channel's input stage: phantom, polarity, low cut, USB return. Omitted fields are left unchanged.",
+	);
+
+const SetHeadampGain = z
+	.object({
+		action: z.literal("set_headamp_gain"),
+		channel: ChannelRef,
+		gain_db: z.number().min(-12).max(60).describe("Analog preamp gain in dB (-12 to +60)."),
+	})
+	.describe("Set the analog preamp (headamp) gain of an input channel 1-16.");
+
+const SetChannelPan = z
+	.object({
+		action: z.literal("set_channel_pan"),
+		channel: ChannelRef,
+		pan: z
+			.number()
+			.min(PAN.min)
+			.max(PAN.max)
+			.describe("-100 = hard left, 0 = center, +100 = hard right."),
+	})
+	.describe("Pan a channel in the main LR mix.");
+
+const SetChannelLrAssign = z
+	.object({
+		action: z.literal("set_channel_lr_assign"),
+		channel: ChannelRef,
+		enabled: z
+			.boolean()
+			.describe(
+				"true = the channel feeds the main LR mix; false = it only reaches its bus sends (e.g. when routed through a subgroup bus).",
+			),
+	})
+	.describe("Assign or remove a channel from the main LR mix.");
+
+const SetChannelFxSendLevel = z
+	.object({
+		action: z.literal("set_channel_fx_send_level"),
+		channel: ChannelRef,
+		fx_slot: FxSlot,
+		level_db: LevelDb,
+	})
+	.describe("Set how much of a channel goes to an FX engine (FX send 1-4).");
+
+const SetChannelSendTap = z
+	.object({
+		action: z.literal("set_channel_send_tap"),
+		channel: ChannelRef,
+		bus: BusRef,
+		tap: z
+			.enum(SEND_TAP_NAMES)
+			.describe(
+				"Where the bus send is taken from: in (raw input), pre_eq, post_eq, pre_fader, post_fader, group (follows the channel's subgroup).",
+			),
+	})
+	.describe("Set the tap point of a channel's send to a bus (e.g. pre_fader for monitor mixes).");
+
+const StripName = z.string().min(1).max(12).describe("Name shown on the mixer (1-12 characters).");
+const StripColor = z.enum(COLOR_NAMES).describe("Strip color.");
+const ColorInverted = z.boolean().describe("Use the inverted (filled) variant of the color.");
+
+const SetChannelConfig = z
+	.object({
+		action: z.literal("set_channel_config"),
+		channel: ChannelRef,
+		name: StripName.optional(),
+		color: StripColor.optional(),
+		color_inverted: ColorInverted.optional(),
+	})
+	.describe(
+		"Name and/or color a channel. The new name is usable in later commands immediately. Omitted fields are left unchanged.",
+	);
+
+const SetBusConfig = z
+	.object({
+		action: z.literal("set_bus_config"),
+		bus: BusRef,
+		name: StripName.optional(),
+		color: StripColor.optional(),
+		color_inverted: ColorInverted.optional(),
+	})
+	.describe("Name and/or color a bus. Omitted fields are left unchanged.");
+
 const SendRawOsc = z
 	.object({
 		action: z.literal("send_raw_osc"),
@@ -258,6 +374,14 @@ export const Command = z
 		SetFxReturnMute,
 		SetFxReturnSendLevel,
 		SetChannelPreampTrim,
+		SetChannelPreamp,
+		SetHeadampGain,
+		SetChannelPan,
+		SetChannelLrAssign,
+		SetChannelFxSendLevel,
+		SetChannelSendTap,
+		SetChannelConfig,
+		SetBusConfig,
 		SetChannelGate,
 		SetChannelCompressor,
 		SetBusCompressor,

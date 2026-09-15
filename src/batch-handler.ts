@@ -2,6 +2,7 @@ import type { Command } from "./batch-schema.js";
 import { applyCompressor, applyGate } from "./dynamics.js";
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
+import { eqTypeToIndex, sendTapToIndex } from "./strip.js";
 import * as xair from "./xair.js";
 
 export interface CommandResult {
@@ -45,19 +46,37 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 		case "set_channel_eq": {
 			const ch = resolveChannel(registry, cmd.channel);
 			xair.validateEqBand(cmd.band);
-			client.send(xair.chEqBand(ch, cmd.band, "f"), {
-				type: "float",
-				value: xair.eqFreqToFloat(cmd.frequency_hz),
-			});
-			client.send(xair.chEqBand(ch, cmd.band, "g"), {
-				type: "float",
-				value: xair.eqGainToFloat(cmd.gain_db),
-			});
-			client.send(xair.chEqBand(ch, cmd.band, "q"), {
-				type: "float",
-				value: xair.eqQToFloat(cmd.q),
-			});
-			return `Ch ${ch} EQ band ${cmd.band}: ${cmd.frequency_hz}Hz ${cmd.gain_db}dB Q=${cmd.q}`;
+			const parts: string[] = [];
+			if (cmd.type !== undefined) {
+				client.send(xair.chEqBand(ch, cmd.band, "type"), {
+					type: "integer",
+					value: eqTypeToIndex(cmd.type),
+				});
+				parts.push(cmd.type);
+			}
+			if (cmd.frequency_hz !== undefined) {
+				client.send(xair.chEqBand(ch, cmd.band, "f"), {
+					type: "float",
+					value: xair.eqFreqToFloat(cmd.frequency_hz),
+				});
+				parts.push(`${cmd.frequency_hz}Hz`);
+			}
+			if (cmd.gain_db !== undefined) {
+				client.send(xair.chEqBand(ch, cmd.band, "g"), {
+					type: "float",
+					value: xair.eqGainToFloat(cmd.gain_db),
+				});
+				parts.push(`${cmd.gain_db}dB`);
+			}
+			if (cmd.q !== undefined) {
+				client.send(xair.chEqBand(ch, cmd.band, "q"), {
+					type: "float",
+					value: xair.eqQToFloat(cmd.q),
+				});
+				parts.push(`Q=${cmd.q}`);
+			}
+			if (parts.length === 0) throw new Error("set_channel_eq: no EQ parameters given");
+			return `Ch ${ch} EQ band ${cmd.band}: ${parts.join(" ")}`;
 		}
 		case "set_channel_eq_on": {
 			const ch = resolveChannel(registry, cmd.channel);
@@ -127,6 +146,120 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 			const trimFloat = xair.trimDbToFloat(cmd.trim_db);
 			client.send(xair.chPreampTrim(ch), { type: "float", value: trimFloat });
 			return `Ch ${ch} preamp trim -> ${cmd.trim_db} dB`;
+		}
+		case "set_channel_preamp": {
+			const ch = resolveChannel(registry, cmd.channel);
+			const parts: string[] = [];
+			if (cmd.phantom !== undefined) {
+				if (ch > xair.NUM_INPUT_CHANNELS) {
+					throw new Error("Phantom power is only available on input channels 1-16");
+				}
+				client.send(xair.headampPhantom(ch), {
+					type: "integer",
+					value: cmd.phantom ? 1 : 0,
+				});
+				parts.push(`phantom ${cmd.phantom ? "on" : "off"}`);
+			}
+			if (cmd.polarity_inverted !== undefined) {
+				client.send(xair.chPreamp(ch, "invert"), {
+					type: "integer",
+					value: cmd.polarity_inverted ? 1 : 0,
+				});
+				parts.push(`polarity ${cmd.polarity_inverted ? "inverted" : "normal"}`);
+			}
+			if (cmd.low_cut_hz !== undefined) {
+				client.send(xair.chPreamp(ch, "hpf"), {
+					type: "float",
+					value: xair.hpfToFloat(cmd.low_cut_hz),
+				});
+				parts.push(`low cut ${cmd.low_cut_hz} Hz`);
+			}
+			if (cmd.low_cut_enabled !== undefined) {
+				client.send(xair.chPreamp(ch, "hpon"), {
+					type: "integer",
+					value: cmd.low_cut_enabled ? 1 : 0,
+				});
+				parts.push(`low cut ${cmd.low_cut_enabled ? "on" : "off"}`);
+			}
+			if (cmd.usb_return !== undefined) {
+				client.send(xair.chPreamp(ch, "rtnsw"), {
+					type: "integer",
+					value: cmd.usb_return ? 1 : 0,
+				});
+				parts.push(`input ${cmd.usb_return ? "USB return" : "analog"}`);
+			}
+			if (parts.length === 0)
+				throw new Error("set_channel_preamp: no preamp parameters given");
+			return `Ch ${ch} preamp: ${parts.join(", ")}`;
+		}
+		case "set_headamp_gain": {
+			const ch = resolveChannel(registry, cmd.channel);
+			client.send(xair.headampGain(ch), {
+				type: "float",
+				value: xair.headampGainDbToFloat(cmd.gain_db),
+			});
+			return `Ch ${ch} headamp gain -> ${cmd.gain_db} dB`;
+		}
+		case "set_channel_pan": {
+			const ch = resolveChannel(registry, cmd.channel);
+			client.send(xair.chPan(ch), { type: "float", value: xair.panToFloat(cmd.pan) });
+			const where =
+				cmd.pan === 0 ? "center" : cmd.pan < 0 ? `L${Math.abs(cmd.pan)}` : `R${cmd.pan}`;
+			return `Ch ${ch} pan -> ${where}`;
+		}
+		case "set_channel_lr_assign": {
+			const ch = resolveChannel(registry, cmd.channel);
+			client.send(xair.chLrAssign(ch), { type: "integer", value: cmd.enabled ? 1 : 0 });
+			return `Ch ${ch} ${cmd.enabled ? "assigned to" : "removed from"} main LR`;
+		}
+		case "set_channel_fx_send_level": {
+			const ch = resolveChannel(registry, cmd.channel);
+			xair.validateFxSlot(cmd.fx_slot);
+			const fader = xair.dbToFader(cmd.level_db);
+			client.send(xair.chFxSendLevel(ch, cmd.fx_slot), { type: "float", value: fader });
+			return `Ch ${ch} -> FX ${cmd.fx_slot} send -> ${cmd.level_db} dB`;
+		}
+		case "set_channel_send_tap": {
+			const ch = resolveChannel(registry, cmd.channel);
+			const bus = resolveBus(registry, cmd.bus);
+			client.send(xair.chSendTap(ch, bus), {
+				type: "integer",
+				value: sendTapToIndex(cmd.tap),
+			});
+			return `Ch ${ch} -> Bus ${bus} send tap -> ${cmd.tap}`;
+		}
+		case "set_channel_config": {
+			const ch = resolveChannel(registry, cmd.channel);
+			const parts: string[] = [];
+			if (cmd.name !== undefined) {
+				// Registry first: it rejects a name that already belongs to another channel
+				registry.assignName("channel", ch, cmd.name);
+				client.send(xair.chConfigName(ch), { type: "string", value: cmd.name });
+				parts.push(`name "${cmd.name}"`);
+			}
+			if (cmd.color !== undefined) {
+				const idx = xair.colorToIndex(cmd.color, cmd.color_inverted ?? false);
+				client.send(xair.chConfigColor(ch), { type: "integer", value: idx });
+				parts.push(`color ${xair.colorLabel(idx)}`);
+			}
+			if (parts.length === 0) throw new Error("set_channel_config: no name or color given");
+			return `Ch ${ch} config: ${parts.join(", ")}`;
+		}
+		case "set_bus_config": {
+			const bus = resolveBus(registry, cmd.bus);
+			const parts: string[] = [];
+			if (cmd.name !== undefined) {
+				registry.assignName("bus", bus, cmd.name);
+				client.send(xair.busConfigName(bus), { type: "string", value: cmd.name });
+				parts.push(`name "${cmd.name}"`);
+			}
+			if (cmd.color !== undefined) {
+				const idx = xair.colorToIndex(cmd.color, cmd.color_inverted ?? false);
+				client.send(xair.busConfigColor(bus), { type: "integer", value: idx });
+				parts.push(`color ${xair.colorLabel(idx)}`);
+			}
+			if (parts.length === 0) throw new Error("set_bus_config: no name or color given");
+			return `Bus ${bus} config: ${parts.join(", ")}`;
 		}
 		case "set_channel_gate": {
 			const ch = resolveChannel(registry, cmd.channel);

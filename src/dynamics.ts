@@ -487,79 +487,174 @@ export const DYN_READ_PARAMS: xair.DynParam[] = [
 /** Raw first-argument values keyed by parameter name; null = no reply. */
 export type BlockValues = Record<string, unknown>;
 
-function enumName(raw: unknown, names: readonly string[]): string {
+export interface KeyFilterSettings {
+	on: boolean | null;
+	type: string | null;
+	frequency_hz: number | null;
+}
+
+export interface GateSettings {
+	on: boolean | null;
+	mode: string | null;
+	threshold_db: number | null;
+	range_db: number | null;
+	attack_ms: number | null;
+	hold_ms: number | null;
+	release_ms: number | null;
+	key_source: string | null;
+	key_filter: KeyFilterSettings;
+}
+
+export interface CompressorSettings {
+	on: boolean | null;
+	mode: string | null;
+	detector: string | null;
+	envelope: string | null;
+	threshold_db: number | null;
+	ratio: number | null;
+	knee: number | null;
+	makeup_gain_db: number | null;
+	attack_ms: number | null;
+	hold_ms: number | null;
+	release_ms: number | null;
+	mix_percent: number | null;
+	auto: boolean | null;
+	key_source: string | null;
+	key_filter: KeyFilterSettings;
+}
+
+type Range = { readonly min: number; readonly max: number };
+
+function round(value: number, digits: number): number {
+	const f = 10 ** digits;
+	return Math.round(value * f) / f;
+}
+
+export function decodeBool(raw: unknown): boolean | null {
+	if (typeof raw === "number") return raw !== 0;
+	if (typeof raw === "string") return raw.toLowerCase() === "on";
+	return null;
+}
+
+export function decodeEnum(raw: unknown, names: readonly string[]): string | null {
 	if (typeof raw === "number" && Number.isInteger(raw) && raw >= 0 && raw < names.length) {
 		return names[raw];
 	}
 	if (typeof raw === "string") return raw.toLowerCase();
-	return "?";
+	return null;
 }
 
-function onOff(raw: unknown): string {
-	if (typeof raw === "number") return raw ? "on" : "off";
-	if (typeof raw === "string") return raw.toLowerCase();
-	return "?";
+export function decodeLin(raw: unknown, range: Range, digits = 2): number | null {
+	return typeof raw === "number"
+		? round(xair.floatToLin(range.min, range.max, raw), digits)
+		: null;
 }
 
-function num(raw: unknown, convert: (f: number) => number, digits: number, unit: string): string {
-	if (typeof raw !== "number") return "?";
-	return `${convert(raw).toFixed(digits)}${unit}`;
+export function decodeLog(raw: unknown, range: Range, digits = 2): number | null {
+	return typeof raw === "number"
+		? round(xair.floatToLog(range.min, range.max, raw), digits)
+		: null;
 }
 
-function intValue(raw: unknown): number | null {
+function decodeInt(raw: unknown): number | null {
 	return typeof raw === "number" && Number.isInteger(raw) ? raw : null;
 }
 
-function formatKeyFilter(v: BlockValues): string {
-	const typeIdx = intValue(v["filter/type"]);
-	const type = typeIdx === null ? "?" : keyFilterTypeLabel(typeIdx);
-	const freq = num(
-		v["filter/f"],
-		(f) => xair.floatToLog(KEY_FILTER_HZ.min, KEY_FILTER_HZ.max, f),
-		0,
-		" Hz",
-	);
-	return `key filter ${onOff(v["filter/on"])} (${type} @ ${freq})`;
+function decodeKeyFilter(v: BlockValues): KeyFilterSettings {
+	const typeIdx = decodeInt(v["filter/type"]);
+	return {
+		on: decodeBool(v["filter/on"]),
+		type: typeIdx === null ? null : keyFilterTypeLabel(typeIdx),
+		frequency_hz: decodeLog(v["filter/f"], KEY_FILTER_HZ, 0),
+	};
 }
 
-function formatKeySource(raw: unknown): string {
-	const idx = intValue(raw);
-	return `key ${idx === null ? "?" : keySourceLabel(idx)}`;
+function decodeKeySource(raw: unknown): string | null {
+	const idx = decodeInt(raw);
+	return idx === null ? null : keySourceLabel(idx);
+}
+
+export function decodeGate(v: BlockValues): GateSettings {
+	return {
+		on: decodeBool(v.on),
+		mode: decodeEnum(v.mode, GATE_MODES),
+		threshold_db: decodeLin(v.thr, GATE_THRESHOLD_DB, 1),
+		range_db: decodeLin(v.range, GATE_RANGE_DB, 1),
+		attack_ms: decodeLin(v.attack, ATTACK_MS, 1),
+		hold_ms: decodeLog(v.hold, HOLD_MS, 2),
+		release_ms: decodeLog(v.release, RELEASE_MS, 1),
+		key_source: decodeKeySource(v.keysrc),
+		key_filter: decodeKeyFilter(v),
+	};
+}
+
+export function decodeCompressor(v: BlockValues): CompressorSettings {
+	const ratioIdx = decodeInt(v.ratio);
+	return {
+		on: decodeBool(v.on),
+		mode: decodeEnum(v.mode, DYN_MODES),
+		detector: decodeEnum(v.det, DYN_DETECTORS),
+		envelope: decodeEnum(v.env, DYN_ENVELOPES),
+		threshold_db: decodeLin(v.thr, DYN_THRESHOLD_DB, 1),
+		ratio: ratioIdx !== null && ratioIdx < DYN_RATIOS.length ? DYN_RATIOS[ratioIdx] : null,
+		knee: decodeLin(v.knee, DYN_KNEE, 1),
+		makeup_gain_db: decodeLin(v.mgain, DYN_MAKEUP_DB, 1),
+		attack_ms: decodeLin(v.attack, ATTACK_MS, 1),
+		hold_ms: decodeLog(v.hold, HOLD_MS, 2),
+		release_ms: decodeLog(v.release, RELEASE_MS, 1),
+		mix_percent: decodeLin(v.mix, DYN_MIX_PERCENT, 0),
+		auto: decodeBool(v.auto),
+		key_source: decodeKeySource(v.keysrc),
+		key_filter: decodeKeyFilter(v),
+	};
+}
+
+// --- One-line text rendering ---
+
+function onOff(value: boolean | null): string {
+	return value === null ? "?" : value ? "on" : "off";
+}
+
+function fmt(value: number | null, digits: number, unit: string): string {
+	return value === null ? "?" : `${value.toFixed(digits)}${unit}`;
+}
+
+function formatKeyFilter(f: KeyFilterSettings): string {
+	return `key filter ${onOff(f.on)} (${f.type ?? "?"} @ ${fmt(f.frequency_hz, 0, " Hz")})`;
 }
 
 export function formatGate(v: BlockValues): string {
+	const g = decodeGate(v);
 	return [
-		onOff(v.on),
-		`mode ${enumName(v.mode, GATE_MODES)}`,
-		`thr ${num(v.thr, (f) => xair.floatToLin(GATE_THRESHOLD_DB.min, GATE_THRESHOLD_DB.max, f), 1, " dB")}`,
-		`range ${num(v.range, (f) => xair.floatToLin(GATE_RANGE_DB.min, GATE_RANGE_DB.max, f), 0, " dB")}`,
-		`attack ${num(v.attack, (f) => xair.floatToLin(ATTACK_MS.min, ATTACK_MS.max, f), 0, " ms")}`,
-		`hold ${num(v.hold, (f) => xair.floatToLog(HOLD_MS.min, HOLD_MS.max, f), 1, " ms")}`,
-		`release ${num(v.release, (f) => xair.floatToLog(RELEASE_MS.min, RELEASE_MS.max, f), 0, " ms")}`,
-		formatKeySource(v.keysrc),
-		formatKeyFilter(v),
+		onOff(g.on),
+		`mode ${g.mode ?? "?"}`,
+		`thr ${fmt(g.threshold_db, 1, " dB")}`,
+		`range ${fmt(g.range_db, 0, " dB")}`,
+		`attack ${fmt(g.attack_ms, 0, " ms")}`,
+		`hold ${fmt(g.hold_ms, 1, " ms")}`,
+		`release ${fmt(g.release_ms, 0, " ms")}`,
+		`key ${g.key_source ?? "?"}`,
+		formatKeyFilter(g.key_filter),
 	].join(", ");
 }
 
 export function formatCompressor(v: BlockValues): string {
-	const ratioIdx = intValue(v.ratio);
-	const ratio =
-		ratioIdx !== null && ratioIdx < DYN_RATIOS.length ? `${DYN_RATIOS[ratioIdx]}:1` : "?";
+	const c = decodeCompressor(v);
 	return [
-		onOff(v.on),
-		`mode ${enumName(v.mode, DYN_MODES)}`,
-		`det ${enumName(v.det, DYN_DETECTORS)}`,
-		`env ${enumName(v.env, DYN_ENVELOPES)}`,
-		`thr ${num(v.thr, (f) => xair.floatToLin(DYN_THRESHOLD_DB.min, DYN_THRESHOLD_DB.max, f), 1, " dB")}`,
-		`ratio ${ratio}`,
-		`knee ${num(v.knee, (f) => xair.floatToLin(DYN_KNEE.min, DYN_KNEE.max, f), 0, "")}`,
-		`makeup ${num(v.mgain, (f) => xair.floatToLin(DYN_MAKEUP_DB.min, DYN_MAKEUP_DB.max, f), 1, " dB")}`,
-		`attack ${num(v.attack, (f) => xair.floatToLin(ATTACK_MS.min, ATTACK_MS.max, f), 0, " ms")}`,
-		`hold ${num(v.hold, (f) => xair.floatToLog(HOLD_MS.min, HOLD_MS.max, f), 1, " ms")}`,
-		`release ${num(v.release, (f) => xair.floatToLog(RELEASE_MS.min, RELEASE_MS.max, f), 0, " ms")}`,
-		`mix ${num(v.mix, (f) => xair.floatToLin(DYN_MIX_PERCENT.min, DYN_MIX_PERCENT.max, f), 0, "%")}`,
-		`auto ${onOff(v.auto)}`,
-		formatKeySource(v.keysrc),
-		formatKeyFilter(v),
+		onOff(c.on),
+		`mode ${c.mode ?? "?"}`,
+		`det ${c.detector ?? "?"}`,
+		`env ${c.envelope ?? "?"}`,
+		`thr ${fmt(c.threshold_db, 1, " dB")}`,
+		`ratio ${c.ratio === null ? "?" : `${c.ratio}:1`}`,
+		`knee ${fmt(c.knee, 0, "")}`,
+		`makeup ${fmt(c.makeup_gain_db, 1, " dB")}`,
+		`attack ${fmt(c.attack_ms, 0, " ms")}`,
+		`hold ${fmt(c.hold_ms, 1, " ms")}`,
+		`release ${fmt(c.release_ms, 0, " ms")}`,
+		`mix ${fmt(c.mix_percent, 0, "%")}`,
+		`auto ${onOff(c.auto)}`,
+		`key ${c.key_source ?? "?"}`,
+		formatKeyFilter(c.key_filter),
 	].join(", ");
 }

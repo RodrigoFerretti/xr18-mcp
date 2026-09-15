@@ -1,19 +1,28 @@
 import { describe, expect, it } from "vitest";
 import {
 	AUX_CHANNEL,
+	busConfigColor,
 	busConfigName,
 	busDyn,
 	busFader,
 	busMute,
+	chConfigColor,
 	chConfigName,
 	chDyn,
 	chEqBand,
 	chEqOn,
 	chFader,
+	chFxSendLevel,
 	chGate,
+	chLrAssign,
 	chMute,
+	chPan,
+	chPreamp,
 	chPreampTrim,
 	chSendLevel,
+	chSendTap,
+	colorLabel,
+	colorToIndex,
 	dbToFader,
 	eqFreqToFloat,
 	eqGainToFloat,
@@ -23,8 +32,10 @@ import {
 	floatToEqGain,
 	floatToEqQ,
 	floatToHeadampGainDb,
+	floatToHpf,
 	floatToLin,
 	floatToLog,
+	floatToPan,
 	floatToTrimDb,
 	fxReturnFader,
 	fxReturnMute,
@@ -33,12 +44,15 @@ import {
 	fxSendMute,
 	headampGain,
 	headampGainDbToFloat,
+	headampPhantom,
+	hpfToFloat,
 	linToFloat,
 	logToFloat,
 	lrDyn,
 	mainFader,
 	mainMute,
 	NEG_INF_DB,
+	panToFloat,
 	trimDbToFloat,
 	validateBus,
 	validateChannel,
@@ -339,5 +353,49 @@ describe("gate and dynamics addresses", () => {
 		expect(() => chGate(AUX_CHANNEL, "on")).toThrow("aux return");
 		expect(() => chDyn(17, "on")).toThrow("input channels 1-16");
 		expect(() => busDyn(7, "on")).toThrow("Bus must be 1-6");
+	});
+});
+
+describe("channel strip addresses and conversions", () => {
+	it("builds preamp, phantom, EQ type, pan, LR, FX send, tap and color addresses", () => {
+		expect(chPreamp(1, "hpf")).toBe("/ch/01/preamp/hpf");
+		expect(chPreamp(AUX_CHANNEL, "rtnsw")).toBe("/rtn/aux/preamp/rtnsw");
+		expect(headampPhantom(16)).toBe("/headamp/16/phantom");
+		expect(() => headampPhantom(17)).toThrow("Headamp channel must be 1-16");
+		expect(chEqBand(2, 3, "type")).toBe("/ch/02/eq/3/type");
+		expect(chPan(4)).toBe("/ch/04/mix/pan");
+		expect(chLrAssign(AUX_CHANNEL)).toBe("/rtn/aux/mix/lr");
+		expect(chFxSendLevel(5, 1)).toBe("/ch/05/mix/07/level");
+		expect(chFxSendLevel(5, 4)).toBe("/ch/05/mix/10/level");
+		expect(() => chFxSendLevel(5, 5)).toThrow("FX slot must be 1-4");
+		expect(chSendTap(6, 2)).toBe("/ch/06/mix/02/tap");
+		expect(chConfigColor(7)).toBe("/ch/07/config/color");
+		expect(busConfigColor(3)).toBe("/bus/3/config/color");
+	});
+
+	it("maps low-cut frequency logarithmically over 20-400 Hz", () => {
+		expect(hpfToFloat(20)).toBeCloseTo(0, 6);
+		expect(hpfToFloat(400)).toBeCloseTo(1, 6);
+		expect(hpfToFloat(Math.sqrt(20 * 400))).toBeCloseTo(0.5, 6);
+		for (const hz of [20, 50, 80, 120, 400]) {
+			expect(floatToHpf(hpfToFloat(hz))).toBeCloseTo(hz, 6);
+		}
+	});
+
+	it("maps pan linearly with center at 0.5", () => {
+		expect(panToFloat(-100)).toBeCloseTo(0, 6);
+		expect(panToFloat(0)).toBeCloseTo(0.5, 6);
+		expect(panToFloat(100)).toBeCloseTo(1, 6);
+		expect(floatToPan(0.25)).toBeCloseTo(-50, 6);
+	});
+
+	it("maps colors and their inverted variants", () => {
+		expect(colorToIndex("off")).toBe(0);
+		expect(colorToIndex("red")).toBe(1);
+		expect(colorToIndex("white")).toBe(7);
+		expect(colorToIndex("red", true)).toBe(9);
+		expect(colorLabel(2)).toBe("green");
+		expect(colorLabel(15)).toBe("white (inverted)");
+		expect(colorLabel(16)).toBe("?(16)");
 	});
 });
