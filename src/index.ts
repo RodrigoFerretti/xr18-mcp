@@ -8,6 +8,7 @@ import { registerEqMatchTool } from "./tools/eq-match.js";
 import { registerGainStageTool } from "./tools/gain-stage.js";
 import { registerQueryTools } from "./tools/query.js";
 import { registerRtaTool } from "./tools/rta.js";
+import { registerSnapshotTool } from "./tools/snapshot.js";
 
 const server = new McpServer({
 	name: "xr18-mcp",
@@ -25,6 +26,7 @@ registerQueryTools(server, state);
 registerRtaTool(server, state);
 registerEqMatchTool(server, state);
 registerGainStageTool(server, state);
+registerSnapshotTool(server, state);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

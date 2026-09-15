@@ -33,7 +33,7 @@ Legend:
 | Config | name, color, input source, USB return source | name + color for channels and buses | insrc/rtnsrc |
 | Groups | 4 DCA, 4 mute groups | none | everything |
 | FX engines | 4 slots, type + up to 64 params | none | everything |
-| Snapshots | 64 slots, load/save/name | none | everything (needed for undo) |
+| Snapshots | 64 slots, load/save/name | `snapshot` tool: list, load, save, rename | scope, delete |
 | Monitoring | solo per strip, solo bus config | none | solo on/off, clear solo |
 | Metering | 10 meter streams | RTA (`/meters/4`), inputs (`/meters/2`) | outputs/bus meters, gate/comp gain reduction |
 | Recorder | USB stereo record/play | none | tape transport |
@@ -187,10 +187,11 @@ Same as a bus: `config`, `dyn`, `insert`, 6-band `eq` + `mode`, `geq`, `mix/on`,
 
 | Address | Type | Detail | Status |
 |---|---|---|---|
-| `/-snap/load ,i N` | int | recall slot N (1..64) | ? (widely used, unverified here) |
-| `/-snap/save ,i N` | int | store current state to slot N | ? |
-| `/-snap/index` | int | currently loaded slot | ? |
-| `/-snap/NN/name` | string | slot name | ? |
+| `/-snap/load ,i N` | int | recall slot N (1..64, 1-based) | OK (Bitfocus Companion X AIR module) |
+| `/-snap/save ,i N` | int | store current state to slot N | OK (Companion) |
+| `/-snap/index` | int | currently loaded slot, 1-based | OK (Companion) |
+| `/-snap/name` | string | name of the currently loaded slot | OK (Companion) |
+| `/-snap/NN/name` | string | slot name; "" for an empty slot | OK (Companion); writability via OSC to verify |
 | `/-snap/NN/scope` | int | recall scope bitmask | ? |
 | `/-stat/rta/source` | int | 0..15 = ch, 16 = aux, then FX rtn / bus / LR (order ?) | OK for ch/aux (implemented) |
 | `/-stat/solosw/NN` | int 0/1 | solo state per strip | X32 |

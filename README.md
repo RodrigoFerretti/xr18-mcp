@@ -12,6 +12,7 @@ Built with [Model Context Protocol](https://modelcontextprotocol.io) so that AI 
 - **RTA capture** — point the mixer's Real-Time Analyzer at a channel, capture spectrum frames, and get averaged frequency/dB data across 100 bands
 - **Full channel strip** — phantom, polarity, low cut, headamp gain, EQ band types (shelf/cut), pan, LR assign, FX sends, send tap points, names and colors; read a whole strip back as JSON
 - **Gate and compressor** — full gate/expander on input channels and compressor on channels, buses and main LR, in engineer units (dB, ms, Hz); partial updates and whole-block read-back
+- **Snapshots** — list, save, load and rename the mixer's 64 snapshots; save one before automated changes so they can be undone
 - **Gain staging** — measure input peaks and preview or apply headamp gain changes toward a target level
 - **FX control** — set FX send/return levels and mutes
 - **Raw OSC** — escape hatch for any OSC command not covered by the tools
@@ -26,6 +27,7 @@ Built with [Model Context Protocol](https://modelcontextprotocol.io) so that AI 
 | `capture_rta` | Capture RTA spectrum data from a channel (100 bands, 20 Hz – 18.6 kHz) |
 | `eq_match` | Fit 4 parametric EQ bands so a recorded spectrum matches a reference |
 | `gain_stage` | Measure input peaks and suggest or apply headamp gain changes |
+| `snapshot` | List, save, load or rename mixer snapshots (64 slots) |
 | `list_names` | Show all channel and bus name assignments |
 | `get_mixer_info` | Query mixer info via `/xinfo` |
 

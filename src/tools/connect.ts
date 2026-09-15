@@ -10,7 +10,7 @@ export interface MixerState {
 	registry: NameRegistry;
 }
 
-async function syncNames(client: OscClient, registry: NameRegistry): Promise<number> {
+export async function syncNames(client: OscClient, registry: NameRegistry): Promise<number> {
 	let count = 0;
 
 	for (let ch = 1; ch <= xair.NUM_CHANNELS; ch++) {
