@@ -40,7 +40,7 @@ describe("addresses and plans", () => {
 		const geq = geqReadPlan({ kind: "main" });
 		expect(geq).toHaveLength(31);
 		expect(geq[0]).toEqual({ key: "geq/20", address: "/lr/geq/20" });
-		expect(geq[2].address).toBe("/lr/geq/31_5");
+		expect(geq[2].address).toBe("/lr/geq/31.5");
 		expect(geq[18].address).toBe("/lr/geq/1k25");
 		expect(geq[30].address).toBe("/lr/geq/20k");
 	});
@@ -60,7 +60,7 @@ describe("hzLabel / geqBandForHz", () => {
 		expect(xair.geqBandForHz(1000).id).toBe("1k");
 		expect(xair.geqBandForHz(1100).id).toBe("1k");
 		expect(xair.geqBandForHz(1150).id).toBe("1k25");
-		expect(xair.geqBandForHz(30).id).toBe("31_5");
+		expect(xair.geqBandForHz(30).id).toBe("31.5");
 		expect(xair.geqBandForHz(5).id).toBe("20");
 		expect(xair.geqBandForHz(50000).id).toBe("20k");
 	});

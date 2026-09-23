@@ -92,7 +92,11 @@ export function stripReadPlan(ch: number): ReadPlan {
 		plan.push({ key: "headamp/gain", address: xair.headampGain(ch) });
 		plan.push({ key: "headamp/phantom", address: xair.headampPhantom(ch) });
 	}
-	for (const param of ["invert", "hpon", "hpf", "rtnsw", "rtntrim"] as const) {
+	// The aux return has no polarity or low-cut block (verified on an MR18)
+	const preampParams = isInput
+		? (["invert", "hpon", "hpf", "rtnsw", "rtntrim"] as const)
+		: (["rtnsw", "rtntrim"] as const);
+	for (const param of preampParams) {
 		plan.push({ key: `preamp/${param}`, address: xair.chPreamp(ch, param) });
 	}
 	if (isInput) {

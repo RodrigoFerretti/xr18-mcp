@@ -107,7 +107,11 @@ export function formatSnapshotList(list: SnapshotList): string {
 	if (list.current === null) {
 		lines.push("Current snapshot: unknown (no reply)");
 	} else {
-		const name = list.currentName === null ? "" : ` "${list.currentName}"`;
+		// Prefer the slot's stored name: /-snap/name is the name at load time
+		// and does not follow a later rename or save (seen on an MR18).
+		const slotName = list.slots.find((s) => s.slot === list.current)?.name ?? null;
+		const shown = slotName ?? list.currentName;
+		const name = shown === null ? "" : ` "${shown}"`;
 		lines.push(`Current snapshot: slot ${list.current}${name}`);
 	}
 
@@ -172,6 +176,28 @@ async function readSlotName(client: OscClient, slot: number): Promise<string | n
 	return firstString(await client.query(snapName(slot)));
 }
 
+/**
+ * The mixer stores a snapshot asynchronously (an MR18 needed more than 500 ms),
+ * so poll the slot name until it shows the expected value, up to 6 x settleMs.
+ */
+async function waitForSlotName(
+	client: OscClient,
+	slot: number,
+	expected: string | undefined,
+	settleMs: number,
+): Promise<string | null> {
+	const deadline = Date.now() + settleMs * 6;
+	let stored: string | null = null;
+	do {
+		await sleep(Math.min(settleMs, 250));
+		stored = await readSlotName(client, slot);
+		const done =
+			expected === undefined ? stored !== null && stored !== "" : stored === expected;
+		if (done) return stored;
+	} while (Date.now() < deadline);
+	return stored;
+}
+
 async function readCurrent(client: OscClient): Promise<string> {
 	const [index, name] = await client.queryMulti([snapIndex(), snapCurrentName()]);
 	const idx = firstInt(index);
@@ -218,8 +244,7 @@ export async function executeSnapshotAction(
 			if (name !== undefined) {
 				client.send(snapName(slot), { type: "string", value: name });
 			}
-			await sleep(settleMs);
-			const stored = await readSlotName(client, slot);
+			const stored = await waitForSlotName(client, slot, name, settleMs);
 			const shown = stored === null ? "(name not read back)" : `"${stored}"`;
 			const replaced = existing ? ` (replaced "${existing}")` : "";
 			return `Saved current mixer state to snapshot slot ${slot} ${shown}${replaced}.`;

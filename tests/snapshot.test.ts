@@ -99,6 +99,15 @@ describe("readSnapshotList / formatSnapshotList", () => {
 		expect(text).toContain("No reply: 5");
 	});
 
+	it("shows the slot's own name for the current slot, not the stale load-time name", () => {
+		const text = formatSnapshotList({
+			current: 6,
+			currentName: "EMPTY",
+			slots: [{ slot: 6, name: "pre-verify" }],
+		});
+		expect(text).toContain('Current snapshot: slot 6 "pre-verify"');
+	});
+
 	it("handles an unresponsive index and no saved snapshots", () => {
 		const text = formatSnapshotList({
 			current: null,

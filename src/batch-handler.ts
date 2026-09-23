@@ -172,10 +172,19 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 		case "set_channel_preamp": {
 			const ch = resolveChannel(registry, cmd.channel);
 			const parts: string[] = [];
-			if (cmd.phantom !== undefined) {
-				if (ch > xair.NUM_INPUT_CHANNELS) {
+			if (ch > xair.NUM_INPUT_CHANNELS) {
+				if (cmd.phantom !== undefined) {
 					throw new Error("Phantom power is only available on input channels 1-16");
 				}
+				if (
+					cmd.polarity_inverted !== undefined ||
+					cmd.low_cut_enabled !== undefined ||
+					cmd.low_cut_hz !== undefined
+				) {
+					throw new Error("The aux return has no polarity or low-cut controls");
+				}
+			}
+			if (cmd.phantom !== undefined) {
 				client.send(xair.headampPhantom(ch), {
 					type: "integer",
 					value: cmd.phantom ? 1 : 0,

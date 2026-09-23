@@ -420,19 +420,20 @@ describe("bus and main EQ addresses", () => {
 		expect(lrEqOn()).toBe("/lr/eq/on");
 		expect(lrEqMode()).toBe("/lr/eq/mode");
 		expect(lrEqBand(3, "type")).toBe("/lr/eq/3/type");
-		expect(busGeq(4, "31_5")).toBe("/bus/4/geq/31_5");
+		expect(busGeq(4, "31.5")).toBe("/bus/4/geq/31.5");
 		expect(lrGeq("12k5")).toBe("/lr/geq/12k5");
 		expect(() => busEqBand(1, 7, "f")).toThrow("Bus/main EQ band must be 1-6");
 		expect(() => validateBusEqBand(0)).toThrow("Bus/main EQ band must be 1-6");
 		expect(() => busEqOn(7)).toThrow("Bus must be 1-6");
 	});
 
-	it("has 31 ascending GEQ bands with dot-free ids and a linear +/-15 dB gain", () => {
+	it("has 31 ascending GEQ bands with the firmware's ids and a linear +/-15 dB gain", () => {
 		expect(GEQ_BANDS).toHaveLength(31);
 		for (let i = 1; i < GEQ_BANDS.length; i++) {
 			expect(GEQ_BANDS[i].hz).toBeGreaterThan(GEQ_BANDS[i - 1].hz);
-			expect(GEQ_BANDS[i].id).not.toContain(".");
 		}
+		expect(GEQ_BANDS[2].id).toBe("31.5");
+		expect(GEQ_BANDS.filter((b) => b.id.includes("."))).toHaveLength(1);
 		expect(geqGainToFloat(-15)).toBeCloseTo(0, 6);
 		expect(geqGainToFloat(0)).toBeCloseTo(0.5, 6);
 		expect(geqGainToFloat(15)).toBeCloseTo(1, 6);

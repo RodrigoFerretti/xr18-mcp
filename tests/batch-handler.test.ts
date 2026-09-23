@@ -252,6 +252,8 @@ describe("executeBatch", () => {
 				{ action: "set_channel_preamp", channel: 17, phantom: true },
 				{ action: "set_channel_preamp", channel: 17, usb_return: true },
 				{ action: "set_channel_preamp", channel: 1 },
+				{ action: "set_channel_preamp", channel: 17, low_cut_enabled: true },
+				{ action: "set_channel_preamp", channel: 17, polarity_inverted: true },
 			],
 			client,
 			registry,
@@ -265,6 +267,10 @@ describe("executeBatch", () => {
 		});
 		expect(results[2].status).toBe("error");
 		expect(results[2].message).toContain("no preamp parameters");
+		expect(results[3].status).toBe("error");
+		expect(results[3].message).toContain("no polarity or low-cut");
+		expect(results[4].status).toBe("error");
+		expect(client.send).toHaveBeenCalledTimes(1);
 	});
 
 	it("handles set_headamp_gain", () => {

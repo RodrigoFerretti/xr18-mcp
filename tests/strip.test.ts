@@ -101,6 +101,9 @@ describe("stripReadPlan", () => {
 		const addresses = stripReadPlan(xair.AUX_CHANNEL).map((e) => e.address);
 		expect(addresses).toContain("/rtn/aux/config/name");
 		expect(addresses).toContain("/rtn/aux/preamp/rtntrim");
+		expect(addresses).toContain("/rtn/aux/preamp/rtnsw");
+		expect(addresses).not.toContain("/rtn/aux/preamp/hpf");
+		expect(addresses).not.toContain("/rtn/aux/preamp/invert");
 		expect(addresses).toContain("/rtn/aux/mix/fader");
 		expect(addresses.some((a) => a.includes("/headamp/"))).toBe(false);
 		expect(addresses.some((a) => a.includes("/gate/"))).toBe(false);

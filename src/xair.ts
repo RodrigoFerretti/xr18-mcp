@@ -446,11 +446,15 @@ export function lrEqBand(band: number, param: EqBandParam): string {
 	return `/lr/eq/${band}/${param}`;
 }
 
-/** The 31 ISO third-octave GEQ bands with the identifier the firmware uses in the address. */
+/**
+ * The 31 ISO third-octave GEQ bands with the identifier the firmware uses in
+ * the address. Verified on an MR18 (fw 1.16): 31.5 Hz is "31.5" with a dot;
+ * the kHz bands are "1k", "1k25", "1k6", ... "20k".
+ */
 export const GEQ_BANDS: readonly { id: string; hz: number }[] = [
 	{ id: "20", hz: 20 },
 	{ id: "25", hz: 25 },
-	{ id: "31_5", hz: 31.5 },
+	{ id: "31.5", hz: 31.5 },
 	{ id: "40", hz: 40 },
 	{ id: "50", hz: 50 },
 	{ id: "63", hz: 63 },

@@ -2,6 +2,8 @@
 
 Compiled 2026-09-14 from: the xair-api-python source (`shared.py`, `headamp.py`, `config.py`, `bus.py`, `lr.py`, `rtn.py`, `dca.py`), Patrick-Gilles Maillot's *Unofficial X32/M32 OSC Remote Protocol* (the X AIR firmware shares the parameter semantics, enum orders and float mappings with the X32), and the notameadow/xair-osc README for meter layouts. The official *X AIR Remote Control Protocol* PDF on Behringer's CDN was unreachable (HTTP 500) at the time of writing.
 
+**Hardware verification (2026-09-23):** an MR18, firmware 1.16, at 192.168.0.2. Rows marked "MR18" below were confirmed on that unit, most of them both by OSC read-back and by eye in X AIR Edit. Findings: `tap` is the send tap parameter (`type` does not exist); the key source clamps at 22 (0 = self, 1-16 = channels, 17-22 = buses); `dyn/pos`, `preamp/hpslope` and `preamp/trim` do not exist; the aux return has no `preamp/invert`, `hpon` or `hpf`; the 31.5 Hz GEQ band is `31.5` (with a dot); the app displays the same quantized values the OSC floats decode to (e.g. gate release 983 ms), so no rounding table is needed.
+
 Legend:
 
 - **OK** = confirmed by an X AIR-specific source.
@@ -26,9 +28,9 @@ Legend:
 |---|---|---|---|
 | Fader / mute / LR assign | ch, bus, LR, fxsend, rtn, dca | ch, bus, LR, fxsend, rtn fader+mute; ch pan + LR assign | DCA fader/mute |
 | Sends | 6 bus + 4 FX sends per channel, each with tap point | bus level, FX level, bus tap | send pan, grpon |
-| Preamp | headamp gain, phantom, polarity, HPF, USB return switch/trim | all (`set_channel_preamp`, `set_headamp_gain`, `set_channel_preamp_trim`) | hpslope (unverified) |
-| Gate | full | `set_channel_gate` / `get_channel_gate` | key source bus offset unverified |
-| Compressor | full, ch + bus + LR | `set_channel_compressor`, `set_bus_compressor`, `set_main_compressor` + `get_*` | key source bus offset unverified |
+| Preamp | headamp gain, phantom, polarity, HPF, USB return switch/trim | all (`set_channel_preamp`, `set_headamp_gain`, `set_channel_preamp_trim`) | none (`hpslope` does not exist on X AIR) |
+| Gate | full | `set_channel_gate` / `get_channel_gate` | none |
+| Compressor | full, ch + bus + LR | `set_channel_compressor`, `set_bus_compressor`, `set_main_compressor` + `get_*` | none |
 | EQ | 4-band ch/rtn/aux (with band type), 6-band bus/LR + 31-band GEQ | channel 4-band, bus/LR 6-band + mode + GEQ, all with read-back | rtn/aux EQ commands |
 | Config | name, color, input source, USB return source | name + color for channels and buses | insrc/rtnsrc |
 | Groups | 4 DCA, 4 mute groups | none | everything |
@@ -60,11 +62,11 @@ Also applies (with the noted subsets) to `/rtn/aux` and `/rtn/1..4`.
 | `/ch/XX/preamp/invert` | int 0/1 | polarity | OK |
 | `/ch/XX/preamp/hpon` | int 0/1 | low-cut on | OK |
 | `/ch/XX/preamp/hpf` | logf | 20..400 Hz | OK |
-| `/ch/XX/preamp/hpslope` | enum | `12, 18, 24` dB/oct | ? (exists on X32; not listed by xair-api) |
+| `/ch/XX/preamp/hpslope` | | | does not exist (MR18: no reply) |
 | `/ch/XX/preamp/rtnsw` | int 0/1 | use USB return instead of analog input | OK |
 | `/ch/XX/preamp/rtntrim` | linf | −18..+18 dB, USB return only | OK |
 
-Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
+Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming (MR18: no reply). The aux return `/rtn/aux/preamp` has only `rtnsw` and `rtntrim`; `invert`, `hpon` and `hpf` do not reply there.
 
 ### 3.3 `gate`
 
@@ -77,9 +79,9 @@ Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
 | `/ch/XX/gate/attack` | linf | 0..120 ms | OK |
 | `/ch/XX/gate/hold` | logf | 0.02..2000 ms | OK |
 | `/ch/XX/gate/release` | logf | 5..4000 ms | OK |
-| `/ch/XX/gate/keysrc` | int | 0 = self; then `Ch01..16`, then buses (exact order ?) | OK (order ?) |
+| `/ch/XX/gate/keysrc` | int | 0 = self, 1-16 = Ch01..16, 17-22 = Bus 1..6 (the mixer clamps writes to 22) | MR18 |
 | `/ch/XX/gate/filter/on` | int 0/1 | sidechain filter | OK |
-| `/ch/XX/gate/filter/type` | enum 0..8 | `LC6, LC12, HC6, HC12, 1.0, 2.0, 3.0, 5.0, 10.0` (last five are band-pass Q) | X32 |
+| `/ch/XX/gate/filter/type` | enum 0..8 | `LC6, LC12, HC6, HC12, 1.0, 2.0, 3.0, 5.0, 10.0` (last five are band-pass Q) | MR18 (index 1 shows as a low cut in X AIR Edit; factory default is index 6 = 3.0) |
 | `/ch/XX/gate/filter/f` | logf | 20..20000 Hz | OK |
 
 ### 3.4 `dyn` (compressor / expander)
@@ -97,11 +99,11 @@ Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
 | `/ch/XX/dyn/attack` | linf | 0..120 ms | OK |
 | `/ch/XX/dyn/hold` | logf | 0.02..2000 ms | OK |
 | `/ch/XX/dyn/release` | logf | 5..4000 ms | OK |
-| `/ch/XX/dyn/pos` | enum | `PRE, POST` (relative to EQ) | ? (X32 has it; xair-api does not list it) |
+| `/ch/XX/dyn/pos` | | | does not exist (MR18: no reply) |
 | `/ch/XX/dyn/mix` | linf | 0..100 % parallel mix | OK |
 | `/ch/XX/dyn/auto` | int 0/1 | auto time constants | OK |
-| `/ch/XX/dyn/keysrc` | int | as gate | OK (order ?) |
-| `/ch/XX/dyn/filter/on` / `type` / `f` | | as gate | OK / X32 / OK |
+| `/ch/XX/dyn/keysrc` | int | as gate | MR18 |
+| `/ch/XX/dyn/filter/on` / `type` / `f` | | as gate | MR18 |
 
 ### 3.5 `insert`
 
@@ -131,8 +133,8 @@ Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
 | `/ch/XX/mix/01..06/level` | level | send to bus 1..6 | OK (implemented) |
 | `/ch/XX/mix/07..10/level` | level | send to FX 1..4 | OK |
 | `/ch/XX/mix/NN/pan` (odd NN) | linf | pan within a linked stereo bus pair | X32 |
-| `/ch/XX/mix/NN/tap` | enum | `IN, PREEQ, POSTEQ, PRE, POST, GRP` | X32 (X32 calls it `type`; X AIR uses `tap` per xair docs — verify) |
-| `/ch/XX/mix/NN/grpon` | int 0/1 | send follows group (subgroup mode) | ? |
+| `/ch/XX/mix/NN/tap` | enum | `IN, PREEQ, POSTEQ, PRE, POST, GRP`; factory default 2 (POSTEQ) on bus sends and 4 (POST) on FX sends 07-10 | MR18 (`type` does not reply) |
+| `/ch/XX/mix/NN/grpon` | int 0/1 | send follows group (subgroup mode) | MR18 (replies) |
 
 ### 3.8 `grp` and `automix`
 
@@ -145,7 +147,7 @@ Note: there is no `/ch/XX/preamp/trim` on X AIR; that is X32 naming.
 
 ## 4. Buses `/bus/1` … `/bus/6` (not zero-padded)
 
-Blocks: `config` (name, color), `dyn` (same as channel), `insert`, `eq` with **6 bands** (`/bus/N/eq/1..6/type|f|g|q`, plus `/bus/N/eq/on` and `/bus/N/eq/mode` = `PEQ, GEQ, TEQ`), `geq` (31 bands; band ids are dot-free: `20, 25, 31_5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1k, 1k25, 1k6, 2k, 2k5, 3k15, 4k, 5k, 6k3, 8k, 10k, 12k5, 16k, 20k`; each linf −15..+15 dB), `mix` (`on`, `fader`, `lr` ?), `grp` (`dca`, `mute`). Status: OK (xair-api-python) for blocks, mode and GEQ band ids; the ±15 dB GEQ range follows the X32.
+Blocks: `config` (name, color), `dyn` (same as channel), `insert`, `eq` with **6 bands** (`/bus/N/eq/1..6/type|f|g|q`, plus `/bus/N/eq/on` and `/bus/N/eq/mode` = `PEQ, GEQ, TEQ`), `geq` (31 bands; band ids: `20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800, 1k, 1k25, 1k6, 2k, 2k5, 3k15, 4k, 5k, 6k3, 8k, 10k, 12k5, 16k, 20k`; each linf −15..+15 dB), `mix` (`on`, `fader`, `lr`), `grp` (`dca`, `mute`). Status: MR18 for every GEQ band id (note `31.5` with a dot, not `31_5`), for `eq/mode`, and for `mix/lr`; the ±15 dB range was confirmed by X AIR Edit showing +3 dB for float 0.6.
 
 ## 5. Main `/lr`
 
@@ -187,15 +189,15 @@ Same as a bus: `config`, `dyn`, `insert`, 6-band `eq` + `mode`, `geq`, `mix/on`,
 
 | Address | Type | Detail | Status |
 |---|---|---|---|
-| `/-snap/load ,i N` | int | recall slot N (1..64, 1-based) | OK (Bitfocus Companion X AIR module) |
-| `/-snap/save ,i N` | int | store current state to slot N | OK (Companion) |
-| `/-snap/index` | int | currently loaded slot, 1-based | OK (Companion) |
-| `/-snap/name` | string | name of the currently loaded slot | OK (Companion) |
-| `/-snap/NN/name` | string | slot name; "" for an empty slot | OK (Companion); writability via OSC to verify |
-| `/-snap/NN/scope` | int | recall scope bitmask | ? |
+| `/-snap/load ,i N` | int | recall slot N (1..64, 1-based) | MR18 |
+| `/-snap/save ,i N` | int | store current state to slot N; the store completes asynchronously, more than 500 ms later | MR18 |
+| `/-snap/index` | int | currently loaded slot, 1-based; also set by a save | MR18 |
+| `/-snap/name` | string | name of the loaded snapshot at load time; does not follow a later rename or save | MR18 |
+| `/-snap/NN/name` | string | slot name, writable; "" for an empty slot | MR18 |
+| `/-snap/NN/scope` | string | one `+`/`-` flag per scope item (59 chars); present on empty slots too | MR18 |
 | `/-stat/rta/source` | int | 0..15 = ch, 16 = aux, then FX rtn / bus / LR (order ?) | OK for ch/aux (implemented) |
-| `/-stat/solosw/NN` | int 0/1 | solo state per strip | X32 |
-| `/-stat/tape/state` | enum | `0 Stop, 1 Pause, 2 Play, 3 Pause Rec, 4 Record, 5 FF, 6 REW` | X32 |
+| `/-stat/solosw/NN` | int 0/1 | solo state per strip | MR18 (replies); `/-stat/solo` and `/config/solo/level` reply too |
+| `/-stat/tape/state` | enum | `0 Stop, 1 Pause, 2 Play, 3 Pause Rec, 4 Record, 5 FF, 6 REW` | MR18 (replies) |
 | `/-stat/tape/file` / `etime` / `rtime` | | current file, elapsed, remaining | X32 |
 | `/-action/clearsolo ,i 1` | | clear all solos | X32 |
 | `/-action/setrtasrc` | int | alternative to `/-stat/rta/source` | X32 |
