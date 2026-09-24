@@ -1,5 +1,3 @@
-import { createSocket } from "node:dgram";
-import { fromBuffer, toBuffer } from "osc-min";
 import type { OscClient } from "./osc-client.js";
 
 export const RTA_BAND_COUNT = 100;
@@ -37,6 +35,13 @@ export interface RtaResult {
 	frameCount: number;
 }
 
+const RENEW_INTERVAL_MS = 8000;
+
+/**
+ * Point the RTA at a channel and average /meters/4 frames for durationMs.
+ * Frames are received on the client's own socket (see OscClient.listen), so
+ * no socket is opened or closed here.
+ */
 export async function captureRta(
 	client: OscClient,
 	channel: number,
@@ -45,80 +50,37 @@ export async function captureRta(
 	const sourceIdx = rtaSourceIndex(channel);
 	client.send("/-stat/rta/source", { type: "integer", value: sourceIdx });
 
-	return new Promise<RtaResult>((resolve, reject) => {
-		const sock = createSocket("udp4");
-		const sums = new Float64Array(RTA_BAND_COUNT);
-		let frameCount = 0;
-		let renewTimer: ReturnType<typeof setInterval> | null = null;
+	const sums = new Float64Array(RTA_BAND_COUNT);
+	let frameCount = 0;
 
-		function sendSubscription() {
-			const buf = toBuffer({
-				address: "/meters",
-				args: [{ type: "string", value: "/meters/4" }],
-			});
-			const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-			sock.send(bytes, 0, bytes.length, client.port, client.ip);
+	const stopListening = client.listen((address, args) => {
+		if (address !== "/meters/4") return;
+		const blobArg = args[0];
+		if (!blobArg || !("value" in blobArg)) return;
+		try {
+			const bands = decodeRtaBlob(blobArg.value as Buffer | Uint8Array);
+			for (let i = 0; i < RTA_BAND_COUNT; i++) sums[i] += bands[i];
+			frameCount++;
+		} catch {
+			// skip malformed frames
 		}
-
-		function cleanup() {
-			if (renewTimer !== null) {
-				clearInterval(renewTimer);
-				renewTimer = null;
-			}
-			try {
-				sock.close();
-			} catch {
-				// already closed
-			}
-		}
-
-		sock.on("message", (msg) => {
-			try {
-				const parsed = fromBuffer(msg);
-				if (parsed.oscType !== "message" || parsed.address !== "/meters/4") return;
-
-				const blobArg = parsed.args[0];
-				if (!blobArg || !("value" in blobArg)) return;
-
-				const data = blobArg.value as unknown as Buffer | Uint8Array;
-				const bands = decodeRtaBlob(data);
-				for (let i = 0; i < RTA_BAND_COUNT; i++) {
-					sums[i] += bands[i];
-				}
-				frameCount++;
-			} catch {
-				// skip malformed frames
-			}
-		});
-
-		sock.on("error", (err) => {
-			cleanup();
-			reject(err);
-		});
-
-		sock.bind(0, () => {
-			sendSubscription();
-
-			// Renew subscription every 8s for captures longer than 10s
-			renewTimer = setInterval(sendSubscription, 8000);
-
-			setTimeout(() => {
-				cleanup();
-
-				if (frameCount === 0) {
-					resolve({
-						bands: new Array(RTA_BAND_COUNT).fill(-90),
-						frameCount: 0,
-					});
-					return;
-				}
-
-				const averaged = new Array<number>(RTA_BAND_COUNT);
-				for (let i = 0; i < RTA_BAND_COUNT; i++) {
-					averaged[i] = Math.round((sums[i] / frameCount) * 100) / 100;
-				}
-				resolve({ bands: averaged, frameCount });
-			}, durationMs);
-		});
 	});
+
+	const subscribe = () => client.send("/meters", { type: "string", value: "/meters/4" });
+	subscribe();
+	const renewTimer = setInterval(subscribe, RENEW_INTERVAL_MS);
+
+	await new Promise<void>((resolve) => setTimeout(resolve, durationMs));
+
+	clearInterval(renewTimer);
+	stopListening();
+
+	if (frameCount === 0) {
+		return { bands: new Array(RTA_BAND_COUNT).fill(-90), frameCount: 0 };
+	}
+	const averaged = new Array<number>(RTA_BAND_COUNT);
+	for (let i = 0; i < RTA_BAND_COUNT; i++) {
+		averaged[i] = Math.round((sums[i] / frameCount) * 100) / 100;
+	}
+	return { bands: averaged, frameCount };
 }

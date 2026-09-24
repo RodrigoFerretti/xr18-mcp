@@ -1,10 +1,15 @@
 import { createSocket, type Socket } from "node:dgram";
-import { toBuffer } from "osc-min";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { captureInputMeters, decodeInputMeterBlob } from "../src/meters.js";
-import type { OscClient } from "../src/osc-client.js";
+import { fromBuffer, toBuffer } from "osc-min";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	captureInputMeters,
+	captureMeters,
+	decodeMeterBlob,
+	METER_STREAMS,
+} from "../src/meters.js";
+import { OscClient } from "../src/osc-client.js";
 
-describe("decodeInputMeterBlob", () => {
+describe("decodeMeterBlob", () => {
 	it("decodes a blob with known values", () => {
 		const count = 18;
 		const buf = Buffer.alloc(4 + count * 2);
@@ -15,7 +20,7 @@ describe("decodeInputMeterBlob", () => {
 		buf.writeInt16LE(0, 8); // ch 2: 0/256 = 0.0 dB
 		buf.writeInt16LE(-2560, 10); // ch 3: -2560/256 = -10.0 dB
 
-		const levels = decodeInputMeterBlob(buf);
+		const levels = decodeMeterBlob(buf);
 		expect(levels).toHaveLength(count);
 		expect(levels[0]).toBe(1.0);
 		expect(levels[1]).toBe(-2.0);
@@ -23,39 +28,20 @@ describe("decodeInputMeterBlob", () => {
 		expect(levels[3]).toBe(-10.0);
 	});
 
-	it("handles variable count", () => {
-		const count = 4;
-		const buf = Buffer.alloc(4 + count * 2);
-		buf.writeInt32LE(count, 0);
-		for (let i = 0; i < count; i++) {
-			buf.writeInt16LE(-i * 256, 4 + i * 2);
-		}
-
-		const levels = decodeInputMeterBlob(buf);
-		expect(levels).toHaveLength(4);
-		expect(levels[0]).toBe(0);
-		expect(levels[1]).toBe(-1);
-		expect(levels[2]).toBe(-2);
-		expect(levels[3]).toBe(-3);
-	});
-
-	it("throws on zero count", () => {
+	it("throws on zero or negative count", () => {
 		const buf = Buffer.alloc(4);
 		buf.writeInt32LE(0, 0);
-		expect(() => decodeInputMeterBlob(buf)).toThrow("Invalid meter blob");
-	});
-
-	it("throws on negative count", () => {
-		const buf = Buffer.alloc(4);
+		expect(() => decodeMeterBlob(buf)).toThrow("Invalid meter blob");
 		buf.writeInt32LE(-1, 0);
-		expect(() => decodeInputMeterBlob(buf)).toThrow("Invalid meter blob");
+		expect(() => decodeMeterBlob(buf)).toThrow("Invalid meter blob");
 	});
 });
 
-describe("captureInputMeters", () => {
+describe("captureMeters / captureInputMeters", () => {
 	let mockServer: Socket;
 	let serverPort: number;
 	let client: OscClient;
+	let subscriptions: string[];
 
 	function buildMeterBlob(levels: number[]): Buffer {
 		const buf = Buffer.alloc(4 + levels.length * 2);
@@ -66,7 +52,32 @@ describe("captureInputMeters", () => {
 		return buf;
 	}
 
+	/** Reply to a /meters subscription with the given frames, spaced 40 ms apart. */
+	function serveFrames(frames: number[][]) {
+		mockServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType !== "message" || parsed.address !== "/meters") return;
+			const stream = String((parsed.args[0] as { value: string }).value);
+			subscriptions.push(stream);
+			frames.forEach((frame, i) => {
+				setTimeout(() => {
+					const oscBuf = toBuffer({
+						address: stream,
+						args: [{ type: "blob", value: buildMeterBlob(frame) }],
+					});
+					const bytes = new Uint8Array(
+						oscBuf.buffer,
+						oscBuf.byteOffset,
+						oscBuf.byteLength,
+					);
+					mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
+				}, i * 40);
+			});
+		});
+	}
+
 	beforeEach(async () => {
+		subscriptions = [];
 		mockServer = createSocket("udp4");
 		await new Promise<void>((resolve) => {
 			mockServer.bind(0, "127.0.0.1", () => {
@@ -74,81 +85,77 @@ describe("captureInputMeters", () => {
 				resolve();
 			});
 		});
-
-		client = {
-			ip: "127.0.0.1",
-			port: serverPort,
-			connected: true,
-			send: vi.fn(),
-			query: vi.fn(),
-			disconnect: vi.fn(),
-		} as unknown as OscClient;
+		client = new OscClient("127.0.0.1", serverPort);
 	});
 
 	afterEach(() => {
+		client.disconnect();
 		mockServer.close();
 	});
 
-	it("captures and tracks peaks across frames", async () => {
-		const frames = [
-			[-10, -20, -30, -5], // frame 1
-			[-8, -25, -28, -10], // frame 2: ch0 louder, ch2 louder
-			[-15, -18, -35, -3], // frame 3: ch1 louder, ch3 louder
-		];
-		let frameIdx = 0;
+	it("subscribes on the client's own socket and tracks peaks and averages", async () => {
+		serveFrames([
+			[-10, -20, -30, -5],
+			[-8, -25, -28, -10],
+			[-15, -18, -35, -3],
+		]);
 
-		mockServer.on("message", (_msg, rinfo) => {
-			const sendFrame = () => {
-				if (frameIdx >= frames.length) return;
-				const blobData = buildMeterBlob(frames[frameIdx]);
-				frameIdx++;
+		const result = await captureMeters(client, METER_STREAMS.strips, 400);
+		expect(subscriptions).toEqual(["/meters/1"]);
+		expect(result.streamId).toBe(1);
+		expect(result.frameCount).toBe(3);
+		expect(result.count).toBe(4);
+		expect(result.peaks).toEqual([-8, -18, -28, -3]);
+		expect(result.mins).toEqual([-15, -25, -35, -10]);
+		expect(result.averages).toEqual([-11, -21, -31, -6]);
+
+		// The client's socket is still usable afterwards: a query round-trips
+		mockServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType === "message" && parsed.address === "/xinfo") {
+				const reply = toBuffer({
+					address: "/xinfo",
+					args: [{ type: "string", value: "ok" }],
+				});
+				const bytes = new Uint8Array(reply.buffer, reply.byteOffset, reply.byteLength);
+				mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
+			}
+		});
+		expect(await client.query("/xinfo")).toEqual(["ok"]);
+	});
+
+	it("captureInputMeters uses /meters/2 and returns peaks", async () => {
+		serveFrames([
+			[-10, -20],
+			[-12, -18],
+		]);
+		const result = await captureInputMeters(client, 300);
+		expect(subscriptions).toEqual(["/meters/2"]);
+		expect(result.frameCount).toBe(2);
+		expect(result.peaks).toEqual([-10, -18]);
+	});
+
+	it("returns empty peaks when no frames arrive", async () => {
+		const result = await captureMeters(client, METER_STREAMS.gainReduction, 200);
+		expect(result.frameCount).toBe(0);
+		expect(result.count).toBe(0);
+		expect(result.peaks).toEqual([]);
+	});
+
+	it("ignores frames from other streams", async () => {
+		mockServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType !== "message" || parsed.address !== "/meters") return;
+			for (const stream of ["/meters/4", "/meters/1"]) {
 				const oscBuf = toBuffer({
-					address: "/meters/2",
-					args: [{ type: "blob", value: blobData }],
+					address: stream,
+					args: [{ type: "blob", value: buildMeterBlob([-1, -2]) }],
 				});
 				const bytes = new Uint8Array(oscBuf.buffer, oscBuf.byteOffset, oscBuf.byteLength);
 				mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
-			};
-
-			sendFrame();
-			setTimeout(sendFrame, 50);
-			setTimeout(sendFrame, 100);
+			}
 		});
-
-		const result = await captureInputMeters(client, 500);
-		expect(result.frameCount).toBeGreaterThanOrEqual(3);
-		expect(result.peaks).toHaveLength(4);
-
-		// Peak across all frames
-		expect(result.peaks[0]).toBeCloseTo(-8, 1); // max(-10, -8, -15)
-		expect(result.peaks[1]).toBeCloseTo(-18, 1); // max(-20, -25, -18)
-		expect(result.peaks[2]).toBeCloseTo(-28, 1); // max(-30, -28, -35)
-		expect(result.peaks[3]).toBeCloseTo(-3, 1); // max(-5, -10, -3)
-	});
-
-	it("returns empty peaks when no frames received", async () => {
-		// Don't set up any mock server response
-		const result = await captureInputMeters(client, 200);
-		expect(result.frameCount).toBe(0);
-		expect(result.peaks).toHaveLength(0);
-	});
-
-	it("returns frameCount", async () => {
-		mockServer.on("message", (_msg, rinfo) => {
-			const blobData = buildMeterBlob([-10, -20]);
-			const oscBuf = toBuffer({
-				address: "/meters/2",
-				args: [{ type: "blob", value: blobData }],
-			});
-			const bytes = new Uint8Array(oscBuf.buffer, oscBuf.byteOffset, oscBuf.byteLength);
-
-			mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
-			setTimeout(() => {
-				mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
-			}, 50);
-		});
-
-		const result = await captureInputMeters(client, 300);
-		expect(result.frameCount).toBeGreaterThanOrEqual(2);
+		const result = await captureMeters(client, 1, 200);
+		expect(result.frameCount).toBe(1);
 	});
 });

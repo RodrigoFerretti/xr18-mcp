@@ -13,6 +13,8 @@ Built with [Model Context Protocol](https://modelcontextprotocol.io) so that AI 
 - **Full channel strip** — phantom, polarity, low cut, headamp gain, EQ band types (shelf/cut), pan, LR assign, FX sends, send tap points, names and colors; read a whole strip back as JSON
 - **Gate and compressor** — full gate/expander on input channels and compressor on channels, buses and main LR, in engineer units (dB, ms, Hz); partial updates and whole-block read-back
 - **Bus and main EQ** — 6-band parametric EQ and 31-band graphic EQ on buses and main LR, with mode switching and read-back
+- **Solo and monitor** — solo any strip on the phones bus, clear all solos, set monitor level/dim/mono
+- **Meters** — watch input, strip, or gain-reduction meters for a few seconds and get peaks and averages per named slot
 - **Snapshots** — list, save, load and rename the mixer's 64 snapshots; save one before automated changes so they can be undone
 - **Gain staging** — measure input peaks and preview or apply headamp gain changes toward a target level
 - **FX control** — set FX send/return levels and mutes
@@ -29,6 +31,7 @@ Built with [Model Context Protocol](https://modelcontextprotocol.io) so that AI 
 | `eq_match` | Fit 4 parametric EQ bands so a recorded spectrum matches a reference |
 | `gain_stage` | Measure input peaks and suggest or apply headamp gain changes |
 | `snapshot` | List, save, load or rename mixer snapshots (64 slots) |
+| `meters` | Watch inputs, strips, or gate/compressor gain reduction and report per-slot peaks and averages |
 | `list_names` | Show all channel and bus name assignments |
 | `get_mixer_info` | Query mixer info via `/xinfo` |
 
@@ -75,6 +78,8 @@ bun run format        # format with biome
 The server communicates with the XR18/MR18 over UDP using the [OSC protocol](https://opensoundcontrol.stanford.edu/). On connection, it syncs channel and bus names from the mixer so you can reference them by name.
 
 The RTA tool subscribes to `/meters/4` to receive real-time spectrum data, averages frames over a configurable duration (2–30 seconds), and returns 100 frequency bands with dB values — useful for analyzing signal content and building EQ matching workflows.
+
+All meter subscriptions are received on the client's single long-lived UDP socket. This matters: the mixer keeps streaming to a subscribed port for about 10 seconds after the last request, and if that port has been closed the resulting ICMP errors make an MR18 ignore the host entirely for about 20 seconds.
 
 ## License
 

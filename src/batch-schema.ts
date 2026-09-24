@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { CompressorFields, GateFields } from "./dynamics.js";
+import { MONITOR_DIM_DB } from "./solo.js";
 import { EQ_MODE_NAMES, EQ_TYPE_NAMES, SEND_TAP_NAMES } from "./strip.js";
 import { COLOR_NAMES, GEQ_GAIN_DB, HPF_HZ, NUM_BUS_EQ_BANDS, PAN } from "./xair.js";
 
@@ -459,6 +460,46 @@ const SetBusConfig = z
 	})
 	.describe("Name and/or color a bus. Omitted fields are left unchanged.");
 
+const SetSolo = z
+	.object({
+		action: z.literal("set_solo"),
+		target: z
+			.enum(["channel", "aux", "fx_return", "bus", "fx_send", "main", "dca"])
+			.describe("What to solo. aux = the USB/aux return (channel 17), main = main LR."),
+		id: z
+			.union([z.number().int(), z.string()])
+			.optional()
+			.describe(
+				"Which one: channel number or name (1-16), FX return 1-4, bus number or name, FX send 1-4, DCA 1-4. Omit for aux and main.",
+			),
+		soloed: z.boolean().describe("true = solo on, false = solo off."),
+	})
+	.describe("Solo or un-solo a strip on the monitor/phones bus. Does not affect the main mix.");
+
+const ClearSolo = z
+	.object({
+		action: z.literal("clear_solo"),
+	})
+	.describe("Switch every solo off.");
+
+const SetMonitor = z
+	.object({
+		action: z.literal("set_monitor"),
+		level_db: LevelDb.optional().describe("Monitor/phones output level in dB (-90 to +10)."),
+		muted: z.boolean().optional().describe("Mute the monitor output."),
+		dim: z.boolean().optional().describe("Dim the monitor output."),
+		dim_attenuation_db: z
+			.number()
+			.min(MONITOR_DIM_DB.min)
+			.max(MONITOR_DIM_DB.max)
+			.optional()
+			.describe("How much dim attenuates, in dB (-40 to 0)."),
+		mono: z.boolean().optional().describe("Sum the monitor output to mono."),
+	})
+	.describe(
+		"Set any subset of the monitor/phones (solo bus) settings. Omitted fields are left unchanged.",
+	);
+
 const SendRawOsc = z
 	.object({
 		action: z.literal("send_raw_osc"),
@@ -509,6 +550,9 @@ export const Command = z
 		SetChannelCompressor,
 		SetBusCompressor,
 		SetMainCompressor,
+		SetSolo,
+		ClearSolo,
+		SetMonitor,
 		SendRawOsc,
 	])
 	.describe("A single mixer command. Use the 'action' field to choose the command type.");

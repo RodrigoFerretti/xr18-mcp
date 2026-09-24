@@ -482,6 +482,51 @@ describe("executeBatch", () => {
 		expect(client.send).toHaveBeenCalledTimes(1 + 31);
 	});
 
+	it("handles solo, clear_solo and monitor", () => {
+		registry.assignName("channel", 3, "Kick");
+		const results = executeBatch(
+			[
+				{ action: "set_solo", target: "channel", id: "Kick", soloed: true },
+				{ action: "set_solo", target: "channel", id: 17, soloed: true },
+				{ action: "set_solo", target: "bus", id: 1, soloed: false },
+				{ action: "set_solo", target: "dca", id: 4, soloed: true },
+				{ action: "set_solo", target: "main", soloed: true },
+				{ action: "set_solo", target: "fx_return", soloed: true },
+				{ action: "clear_solo" },
+				{ action: "set_monitor", level_db: 0, dim: true, muted: false },
+				{ action: "set_monitor" },
+			],
+			client,
+			registry,
+		);
+		expect(results.slice(0, 5).map((r) => r.message)).toEqual([
+			'Ch 3 "Kick" solo on',
+			"Aux solo on",
+			"Bus 1 solo off",
+			"DCA 4 solo on",
+			"Main LR solo on",
+		]);
+		expect(client.send).toHaveBeenCalledWith("/-stat/solosw/03", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledWith("/-stat/solosw/17", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledWith("/-stat/solosw/40", { type: "integer", value: 0 });
+		expect(client.send).toHaveBeenCalledWith("/-stat/solosw/54", { type: "integer", value: 1 });
+		expect(client.send).toHaveBeenCalledWith("/-stat/solosw/50", { type: "integer", value: 1 });
+		expect(results[5].status).toBe("error");
+		expect(results[5].message).toContain("'id' is required");
+		expect(results[6].message).toBe("All solos cleared");
+		expect(client.send).toHaveBeenCalledWith("/-action/clearsolo", {
+			type: "integer",
+			value: 1,
+		});
+		expect(results[7].message).toBe("Monitor: level 0 dB, dim on, unmuted");
+		expect(client.send).toHaveBeenCalledWith("/config/solo/level", {
+			type: "float",
+			value: expect.closeTo(0.75, 4),
+		});
+		expect(client.send).toHaveBeenCalledWith("/config/solo/dim", { type: "integer", value: 1 });
+		expect(results[8].status).toBe("error");
+	});
+
 	it("handles set_channel_gate", () => {
 		registry.assignName("channel", 4, "Tom");
 		const commands: Command[] = [

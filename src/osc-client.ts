@@ -1,6 +1,14 @@
 import { createSocket, type Socket } from "node:dgram";
 import { fromBuffer, type OscArgInput, toBuffer } from "osc-min";
 
+/** A parsed OSC argument as osc-min delivers it. */
+export interface OscArg {
+	type: string;
+	value?: unknown;
+}
+
+export type OscMessageHandler = (address: string, args: readonly OscArg[]) => void;
+
 export class OscClient {
 	readonly ip: string;
 	readonly port: number;
@@ -50,6 +58,30 @@ export class OscClient {
 		// toBuffer returns a DataView; dgram.send accepts Buffer/Uint8Array
 		const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 		this.socket.send(bytes, 0, bytes.length, this.port, this.ip);
+	}
+
+	/**
+	 * Receive every parsed OSC message that arrives on this client's socket,
+	 * e.g. meter frames after a /meters subscription. Returns a function that
+	 * removes the listener. Using the client's own socket for subscriptions
+	 * matters: the mixer keeps streaming to a subscribed port for ~10 s after
+	 * the last request, and if that port has been closed the resulting ICMP
+	 * errors make the mixer ignore this host entirely for ~20 s (seen on an
+	 * MR18). A long-lived socket never triggers that.
+	 */
+	listen(handler: OscMessageHandler): () => void {
+		const wrapped = (buf: Buffer) => {
+			try {
+				const parsed = fromBuffer(buf);
+				if (parsed.oscType === "message") handler(parsed.address, parsed.args);
+			} catch {
+				// skip malformed
+			}
+		};
+		this.socket.on("message", wrapped);
+		return () => {
+			this.socket.removeListener("message", wrapped);
+		};
 	}
 
 	async query(address: string, timeout: number = 500): Promise<unknown[] | null> {

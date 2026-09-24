@@ -9,7 +9,7 @@ export function registerBatchTool(server: McpServer, state: MixerState): void {
 		"Execute multiple mixer commands in a single call. " +
 			"All commands are sent as fast as possible over UDP, minimizing latency. " +
 			"Each command is independent — a failure on one does not stop the rest. " +
-			"Use this to set faders, mutes, pan, sends, preamp/phantom/low cut, headamp gain, channel/bus/main EQ and GEQ, gate, compressor, or names/colors, several at once.",
+			"Use this to set faders, mutes, pan, sends, preamp/phantom/low cut, headamp gain, channel/bus/main EQ and GEQ, gate, compressor, solo/monitor, or names/colors, several at once.",
 		BatchInput.shape,
 		async ({ commands }) => {
 			const client = await getClient(state);

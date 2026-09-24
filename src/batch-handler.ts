@@ -11,6 +11,15 @@ import {
 	type OutputTarget,
 	outputLabel,
 } from "./output-eq.js";
+import {
+	CLEAR_SOLO,
+	MONITOR,
+	MONITOR_DIM_DB,
+	type SoloTarget,
+	soloIndex,
+	soloLabel,
+	soloSwitch,
+} from "./solo.js";
 import { eqModeToIndex, sendTapToIndex } from "./strip.js";
 import * as xair from "./xair.js";
 
@@ -325,6 +334,77 @@ function dispatchOne(cmd: Command, client: OscClient, registry: NameRegistry): s
 			if (parts.length === 0)
 				throw new Error("set_main_compressor: no compressor parameters given");
 			return `Main comp: ${parts.join(", ")}`;
+		}
+		case "set_solo": {
+			const needsId = cmd.target !== "aux" && cmd.target !== "main";
+			if (needsId && cmd.id === undefined) {
+				throw new Error(`set_solo: 'id' is required for target ${cmd.target}`);
+			}
+			let target: SoloTarget;
+			switch (cmd.target) {
+				case "channel": {
+					const ch = resolveChannel(registry, cmd.id as string | number);
+					target = ch === xair.AUX_CHANNEL ? { kind: "aux" } : { kind: "channel", n: ch };
+					break;
+				}
+				case "bus":
+					target = { kind: "bus", n: resolveBus(registry, cmd.id as string | number) };
+					break;
+				case "aux":
+					target = { kind: "aux" };
+					break;
+				case "main":
+					target = { kind: "main" };
+					break;
+				default: {
+					const n = Number(cmd.id);
+					target =
+						cmd.target === "fx_return"
+							? { kind: "fx_return", n }
+							: cmd.target === "fx_send"
+								? { kind: "fx_send", n }
+								: ({ kind: "dca", n } as SoloTarget);
+				}
+			}
+			const index = soloIndex(target);
+			client.send(soloSwitch(index), { type: "integer", value: cmd.soloed ? 1 : 0 });
+			return `${soloLabel(index, registry)} solo ${cmd.soloed ? "on" : "off"}`;
+		}
+		case "clear_solo": {
+			client.send(CLEAR_SOLO, { type: "integer", value: 1 });
+			return "All solos cleared";
+		}
+		case "set_monitor": {
+			const parts: string[] = [];
+			if (cmd.level_db !== undefined) {
+				client.send(MONITOR.level, { type: "float", value: xair.dbToFader(cmd.level_db) });
+				parts.push(`level ${cmd.level_db} dB`);
+			}
+			if (cmd.dim_attenuation_db !== undefined) {
+				client.send(MONITOR.dimAttenuation, {
+					type: "float",
+					value: xair.linToFloat(
+						MONITOR_DIM_DB.min,
+						MONITOR_DIM_DB.max,
+						cmd.dim_attenuation_db,
+					),
+				});
+				parts.push(`dim attenuation ${cmd.dim_attenuation_db} dB`);
+			}
+			if (cmd.dim !== undefined) {
+				client.send(MONITOR.dim, { type: "integer", value: cmd.dim ? 1 : 0 });
+				parts.push(`dim ${cmd.dim ? "on" : "off"}`);
+			}
+			if (cmd.mono !== undefined) {
+				client.send(MONITOR.mono, { type: "integer", value: cmd.mono ? 1 : 0 });
+				parts.push(`mono ${cmd.mono ? "on" : "off"}`);
+			}
+			if (cmd.muted !== undefined) {
+				client.send(MONITOR.mute, { type: "integer", value: cmd.muted ? 1 : 0 });
+				parts.push(cmd.muted ? "muted" : "unmuted");
+			}
+			if (parts.length === 0) throw new Error("set_monitor: no monitor parameters given");
+			return `Monitor: ${parts.join(", ")}`;
 		}
 		case "send_raw_osc": {
 			if (cmd.args && cmd.args.length > 0) {

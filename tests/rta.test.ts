@@ -1,7 +1,7 @@
 import { createSocket, type Socket } from "node:dgram";
-import { toBuffer } from "osc-min";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OscClient } from "../src/osc-client.js";
+import { fromBuffer, toBuffer } from "osc-min";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { OscClient } from "../src/osc-client.js";
 import {
 	captureRta,
 	decodeRtaBlob,
@@ -81,18 +81,20 @@ describe("captureRta", () => {
 	let mockServer: Socket;
 	let serverPort: number;
 	let client: OscClient;
+	let received: { address: string; args: unknown[] }[];
 
 	function buildRtaBlob(): Buffer {
 		const blobData = Buffer.alloc(4 + RTA_BAND_COUNT * 2);
 		blobData.writeInt32LE(RTA_BAND_COUNT, 0);
 		for (let i = 0; i < RTA_BAND_COUNT; i++) {
-			// band i = -(i * 0.5) dB → raw Int16LE = -(i * 128)
+			// band i = -(i * 0.5) dB -> raw Int16LE = -(i * 128)
 			blobData.writeInt16LE(-i * 128, 4 + i * 2);
 		}
 		return blobData;
 	}
 
 	beforeEach(async () => {
+		received = [];
 		mockServer = createSocket("udp4");
 		await new Promise<void>((resolve) => {
 			mockServer.bind(0, "127.0.0.1", () => {
@@ -100,30 +102,24 @@ describe("captureRta", () => {
 				resolve();
 			});
 		});
+		client = new OscClient("127.0.0.1", serverPort);
 
-		client = {
-			ip: "127.0.0.1",
-			port: serverPort,
-			connected: true,
-			send: vi.fn(),
-			query: vi.fn(),
-			disconnect: vi.fn(),
-		} as unknown as OscClient;
-
-		// When mock server receives a subscription, stream back RTA blobs
-		mockServer.on("message", (_msg, rinfo) => {
-			const blobData = buildRtaBlob();
+		// Record everything; stream 3 RTA frames back on a /meters subscription
+		mockServer.on("message", (msg, rinfo) => {
+			const parsed = fromBuffer(msg);
+			if (parsed.oscType !== "message") return;
+			received.push({
+				address: parsed.address,
+				args: parsed.args.map((a) => ("value" in a ? a.value : null)),
+			});
+			if (parsed.address !== "/meters") return;
 			const oscBuf = toBuffer({
 				address: "/meters/4",
-				args: [{ type: "blob", value: blobData }],
+				args: [{ type: "blob", value: buildRtaBlob() }],
 			});
 			const bytes = new Uint8Array(oscBuf.buffer, oscBuf.byteOffset, oscBuf.byteLength);
-
-			const sendFrame = () => {
+			const sendFrame = () =>
 				mockServer.send(bytes, 0, bytes.length, rinfo.port, rinfo.address);
-			};
-
-			// Send 3 frames with small delays
 			sendFrame();
 			setTimeout(sendFrame, 50);
 			setTimeout(sendFrame, 100);
@@ -131,32 +127,23 @@ describe("captureRta", () => {
 	});
 
 	afterEach(() => {
+		client.disconnect();
 		mockServer.close();
 	});
 
-	it("sets RTA source before capturing", async () => {
-		await captureRta(client, 5, 500);
-		expect(client.send).toHaveBeenCalledWith("/-stat/rta/source", {
-			type: "integer",
-			value: 4, // channel 5 → index 4
-		});
+	it("sets the RTA source and subscribes to /meters/4 before capturing", async () => {
+		await captureRta(client, 5, 300);
+		expect(received[0]).toEqual({ address: "/-stat/rta/source", args: [4] }); // channel 5 -> index 4
+		expect(received[1]).toEqual({ address: "/meters", args: ["/meters/4"] });
 	});
 
 	it("captures and averages frames", async () => {
-		const result = await captureRta(client, 1, 500);
-		expect(result.frameCount).toBeGreaterThanOrEqual(1);
+		const result = await captureRta(client, 1, 400);
+		expect(result.frameCount).toBe(3);
 		expect(result.bands).toHaveLength(RTA_BAND_COUNT);
-
 		// All frames have identical data, so average = single frame values
-		// Band 0: 0 dB, Band 1: -0.5 dB, Band 2: -1.0 dB
 		expect(result.bands[0]).toBeCloseTo(0, 1);
 		expect(result.bands[1]).toBeCloseTo(-0.5, 1);
 		expect(result.bands[2]).toBeCloseTo(-1.0, 1);
-	});
-
-	it("returns frame count", async () => {
-		const result = await captureRta(client, 1, 500);
-		// Mock server sends 3 frames per subscription
-		expect(result.frameCount).toBeGreaterThanOrEqual(3);
 	});
 });

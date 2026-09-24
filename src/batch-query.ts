@@ -9,6 +9,7 @@ import {
 import type { NameRegistry } from "./name-registry.js";
 import type { OscClient } from "./osc-client.js";
 import { formatGeq, formatOutputEq, geqReadPlan, outputEqReadPlan } from "./output-eq.js";
+import { formatSolos, soloReadPlan } from "./solo.js";
 import { eqReadPlan, formatEq, formatStrip, type ReadPlan, stripReadPlan } from "./strip.js";
 import * as xair from "./xair.js";
 
@@ -117,6 +118,12 @@ const GetMainGeq = z
 	})
 	.describe("Read the main LR 31-band graphic EQ (bands away from 0 dB are listed).");
 
+const GetSolos = z
+	.object({
+		query: z.literal("get_solos"),
+	})
+	.describe("List every strip that is currently soloed (channels, aux, FX, buses, main, DCAs).");
+
 const GetChannelStrip = z
 	.object({
 		query: z.literal("get_channel_strip"),
@@ -142,6 +149,7 @@ export const Query = z.discriminatedUnion("query", [
 	GetMainEq,
 	GetBusGeq,
 	GetMainGeq,
+	GetSolos,
 	GetChannelStrip,
 ]);
 
@@ -300,6 +308,9 @@ function resolveQuery(q: Query, registry: NameRegistry): ResolvedQuery {
 		}
 		case "get_main_geq": {
 			return planQuery("Main GEQ", geqReadPlan({ kind: "main" }), formatGeq);
+		}
+		case "get_solos": {
+			return planQuery("Solo", soloReadPlan(), (values) => formatSolos(values, registry));
 		}
 		case "get_channel_strip": {
 			const ch = registry.resolve("channel", q.channel);

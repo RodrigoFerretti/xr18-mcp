@@ -199,4 +199,15 @@ describe("executeBatchQuery", () => {
 			"Main GEQ: 100 Hz -2 dB; other bands 0 dB; 30 bands no reply",
 		);
 	});
+
+	it("reads the solo state", async () => {
+		const client = mockClient({
+			"/-stat/solo": [1],
+			"/-stat/solosw/02": [1],
+			"/-stat/solosw/40": [1],
+		});
+		const results = await executeBatchQuery([{ query: "get_solos" }], client, registry);
+		expect(queryMultiCalls(client)[0]).toHaveLength(55);
+		expect(results[0].message).toBe('Solo: soloed: Ch 2 "Snare", Bus 1; 52 switches no reply');
+	});
 });

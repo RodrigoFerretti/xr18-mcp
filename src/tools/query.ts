@@ -6,7 +6,7 @@ export function registerQueryTools(server: McpServer, state: MixerState): void {
 	server.tool(
 		"query",
 		"Query multiple mixer parameters in a single call. " +
-			"Reads faders, sends, trim, channel/bus/main EQ and GEQ, gate/compressor blocks, or a whole channel strip in one call. " +
+			"Reads faders, sends, trim, channel/bus/main EQ and GEQ, gate/compressor blocks, solo state, or a whole channel strip in one call. " +
 			"Each query is independent — a failure on one does not stop the rest.",
 		BatchQueryInput.shape,
 		async ({ queries }) => {

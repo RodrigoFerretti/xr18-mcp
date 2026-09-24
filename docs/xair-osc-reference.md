@@ -36,8 +36,8 @@ Legend:
 | Groups | 4 DCA, 4 mute groups | none | everything |
 | FX engines | 4 slots, type + up to 64 params | none | everything |
 | Snapshots | 64 slots, load/save/name | `snapshot` tool: list, load, save, rename | scope, delete |
-| Monitoring | solo per strip, solo bus config | none | solo on/off, clear solo |
-| Metering | 10 meter streams | RTA (`/meters/4`), inputs (`/meters/2`) | outputs/bus meters, gate/comp gain reduction |
+| Monitoring | solo per strip, solo bus config | `set_solo`, `clear_solo`, `set_monitor`, `get_solos` | solo source / PFL-AFL mode |
+| Metering | 10 meter streams | `meters` tool: strips (`/meters/1`), inputs (`/meters/2`), gain reduction (`/meters/6`); RTA (`/meters/4`) | FX (`/meters/3`), the unidentified streams |
 | Recorder | USB stereo record/play | none | tape transport |
 
 ## 3. Input channels `/ch/01` … `/ch/16`
@@ -196,7 +196,10 @@ Same as a bus: `config`, `dyn`, `insert`, 6-band `eq` + `mode`, `geq`, `mix/on`,
 | `/-snap/NN/name` | string | slot name, writable; "" for an empty slot | MR18 |
 | `/-snap/NN/scope` | string | one `+`/`-` flag per scope item (59 chars); present on empty slots too | MR18 |
 | `/-stat/rta/source` | int | 0..15 = ch, 16 = aux, then FX rtn / bus / LR (order ?) | OK for ch/aux (implemented) |
-| `/-stat/solosw/NN` | int 0/1 | solo state per strip | MR18 (replies); `/-stat/solo` and `/config/solo/level` reply too |
+| `/-stat/solosw/NN` | int 0/1 | NN = 01..54: 1-16 ch, 17 aux, 18-21 FX rtn, 22-39 USB rtn, 40-45 bus, 46-49 FX send, 50 main LR, 51-54 DCA | MR18 (channel 5, bus 1 and DCA 1 set over OSC lit the matching SOLO buttons in X AIR Edit) |
+| `/-stat/solo` | int 0/1 | any solo active | MR18 |
+| `/-action/clearsolo ,i 1` | int | clear all solos | MR18 (cleared bus 1 and DCA 1 solos) |
+| `/config/solo/level` / `mute` / `dim` / `dimatt` / `mono` / `source` / `chmode` / `busmode` | | monitor bus; level = fader curve, dimatt linf −40..0 | MR18 (reply) |
 | `/-stat/tape/state` | enum | `0 Stop, 1 Pause, 2 Play, 3 Pause Rec, 4 Record, 5 FF, 6 REW` | MR18 (replies) |
 | `/-stat/tape/file` / `etime` / `rtime` | | current file, elapsed, remaining | X32 |
 | `/-action/clearsolo ,i 1` | | clear all solos | X32 |
@@ -207,11 +210,16 @@ Same as a bus: `config`, `dyn`, `insert`, 6-band `eq` + `mode`, `geq`, `mix/on`,
 
 | Stream | Values | Layout | Status |
 |---|---|---|---|
-| `/meters/1` | 40 | 16 ch pre, aux L/R, fx1-4 rtn L/R, bus 1-6, fxsend 1-4, main post L/R, mon L/R | OK |
-| `/meters/2` | 36 | 16 preamp inputs, aux in L/R, 18 USB inputs | OK (implemented) |
-| `/meters/3` | ? | gate and comp gain reduction per channel | ? |
-| `/meters/4` | 100 | RTA bands, source set by `/-stat/rta/source` | OK (implemented) |
-| `/meters/5..9` | | outputs / USB sends / misc | ? |
+| `/meters/1` | 40 | 16 ch, aux L/R, fx1-4 rtn L/R, bus 1-6, fxsend 1-4, main L/R, mon L/R | MR18 (first 18 confirmed by the input noise-floor pattern) |
+| `/meters/2` | 36 | 16 preamp inputs, aux in L/R, 18 USB inputs | MR18 |
+| `/meters/3` | 56 | 4 FX engines × 14 values (in L/R, internals, out L/R by the -128 pattern) | MR18 count; layout inferred |
+| `/meters/4` | 100 | RTA bands, source set by `/-stat/rta/source` | MR18 |
+| `/meters/5` | 44 | 8 × silent, 16 ch, 16 ch again, aux L/R, 2 × silent (unidentified) | MR18 count only |
+| `/meters/6` | 39 | gain reduction in dB: 16 gates, 16 channel comps, 6 bus comps, main comp | MR18 (gate on ch 15 → index 14, bus 2 comp → index 33) |
+| `/meters/7` | 16 | all 0 at rest, unidentified (not gate GR) | MR18 count only |
+| `/meters/8`, `/meters/9` | 4 each | all −128 at rest, unidentified | MR18 count only |
+
+**Subscription behaviour (MR18):** the mixer streams to the subscribing port for ~10 s after the last `/meters` request. Closing that socket while the subscription is live produces ICMP port-unreachable replies, after which the mixer ignores the host completely, queries included, for ~20 s. Always receive meters on a long-lived socket (this server uses the client's own socket) and never close a subscribed socket early.
 
 ## 11. Verification recipe
 
